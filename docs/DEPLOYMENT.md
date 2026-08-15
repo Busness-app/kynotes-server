@@ -15,6 +15,22 @@ docker compose -f docker-compose.yml -f docker-compose.local.yml up -d --build
 It publishes `8081` on the host and forwards it to the server's internal
 port `8080`. Do not use this override for an internet-facing deployment.
 
+The default compose file uses the named `kynotes-data` volume for `/data`.
+Restart without `--volumes` to preserve notes:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.local.yml down
+docker compose -f docker-compose.yml -f docker-compose.local.yml up -d --build
+```
+
+Do not run `docker compose down --volumes` unless you intentionally want to
+delete the KyNotes database and encrypted blobs. Confirm the mount before a
+maintenance restart:
+
+```bash
+docker inspect "$(docker compose -f docker-compose.yml -f docker-compose.local.yml ps -q kynotes)" --format '{{range .Mounts}}{{.Destination}} <- {{.Name}}{{"\n"}}{{end}}'
+```
+
 The server applies read-header, read, write, idle, and graceful-shutdown
 timeouts from the configuration. Keep the default non-root container,
 read-only root filesystem, dropped capabilities, and `/data`/`/tmp` writable

@@ -5,6 +5,7 @@ import {
   adminAudit,
   adminTeams,
   adminUsers,
+  APIRequestError,
   changePassword,
   changes,
   comments,
@@ -22,6 +23,7 @@ import {
   logout,
   members,
   notifications,
+  objectConflicts,
   presence,
   readObject,
   removeMember,
@@ -163,7 +165,7 @@ function SharedNote() {
 }
 
 function Login({ onLogin }: { onLogin: (auth: AuthState) => void }) {
-  const [username, setUsername] = useState("");
+  const [username, setUsername] = useState(() => sessionStorage.getItem("kynotes-last-username") ?? "");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -179,6 +181,7 @@ function Login({ onLogin }: { onLogin: (auth: AuthState) => void }) {
         params.iterations,
       );
       const result = await login(username.trim(), authSecret);
+      sessionStorage.setItem("kynotes-last-username", username.trim());
       onLogin({ username: username.trim(), authSecret, user: result.user });
       setPassword("");
     } catch (error) {
@@ -277,6 +280,8 @@ function Workspace({
   const [commentText, setCommentText] = useState("");
   const [commentSection, setCommentSection] = useState("");
   const [commitReceipt, setCommitReceipt] = useState("");
+  const [conflicted, setConflicted] = useState<Set<string>>(new Set());
+  const [lastSavedAt, setLastSavedAt] = useState("");
   const [presenceForContainer, setPresenceForContainer] = useState<
     Array<{ userId: string; state: string }>
   >([]);
@@ -520,6 +525,8 @@ function Workspace({
   async function selectNote(note: Note) {
     setSelectedNote(note);
     setDirty(false);
+    setLastSavedAt(note.version > 0 ? note.updatedAt : "");
+    try { const conflicts = await objectConflicts(note.id); setConflicted((value) => { const next = new Set(value); if (conflicts.some((item) => !item.resolved)) next.add(note.id); else next.delete(note.id); return next; }); } catch { /* conflict metadata is advisory */ }
     try {
       const remote = await comments(note.id);
       const decoded: PlainComment[] = [];
@@ -674,21 +681,22 @@ function Workspace({
         );
         clearQueuedSave(note.id);
         setCommitReceipt(result.commitReceipt ?? "");
+        setConflicted((value) => { const next = new Set(value); next.delete(note.id); return next; });
         const saved = { ...note, version: result.version, updatedAt: savedAt };
+        setLastSavedAt(savedAt);
         setNotes((value) =>
           value.map((entry) => (entry.id === saved.id ? saved : entry)),
         );
         setSelectedNote(saved);
         setDirty(false);
-      } catch {
-        queueSave({
-          id: note.id,
-          containerID: selected.id,
-          version: note.version,
-          payload: encrypted,
-          updatedAt: savedAt,
-        });
-        setError("Saved locally; encrypted change queued for the server.");
+      } catch (error) {
+        if (error instanceof APIRequestError && error.code === "version_conflict") {
+          setConflicted((value) => new Set(value).add(note.id));
+          setError("This note changed on another device. Your encrypted draft is preserved locally; review the conflict before saving again.");
+        } else {
+          queueSave({ id: note.id, containerID: selected.id, version: note.version, payload: encrypted, updatedAt: savedAt });
+          setError("Saved locally; encrypted change queued for the server.");
+        }
       }
     } catch (error) {
       setError(error instanceof Error ? error.message : "Unable to save note");
@@ -1025,11 +1033,20 @@ function Workspace({
                   : "Ready"}
               </span>
               <span className="encrypted">
-                {dirty ? "Autosaving…" : "Encrypted locally"}
+                {dirty
+                  ? "Autosaving…"
+                  : lastSavedAt
+                    ? `Saved on server ${new Date(lastSavedAt).toLocaleTimeString()}`
+                    : "Encrypted locally"}
               </span>
             </div>
             {selectedNote ? (
               <>
+                {conflicted.has(selectedNote.id) && (
+                  <div className="conflict-banner" role="alert">
+                    This note has a newer encrypted version on the server. Your local draft is preserved; reload the note before saving again.
+                  </div>
+                )}
                 <input
                   className="title-input"
                   value={selectedNote.title}

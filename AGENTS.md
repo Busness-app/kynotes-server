@@ -75,6 +75,9 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
 - `web/` treats a restored HTTP session as locked until the user unlocks the
   browser again; note creation also attempts its first server save immediately
   before relying on autosave or the encrypted retry queue.
+- `web/` surfaces server-confirmed save times and treats `version_conflict`
+  responses separately from offline failures, preserving the encrypted local
+  draft without endlessly retrying a stale version.
 - `internal/httpapi` commit receipts are deterministic SHA-256 commitments over
   opaque object/version metadata and ciphertext digest; share links store only
   token hashes and serve ciphertext without the URL-fragment decryption key.

@@ -7,7 +7,8 @@ export type AdminTeam = { id: string; kind: string; ownerUserId: string };
 export type Change = { id: string; kind: string; changeSeq: number; deleted: boolean };
 export type Note = { id: string; title: string; body: string; version: number; updatedAt: string };
 
-type APIError = { error?: { code?: string; message?: string } };
+type APIError = { error?: { code?: string; message?: string }; conflictId?: string; currentVersion?: number };
+export class APIRequestError extends Error { code?: string; conflictId?: string; currentVersion?: number; constructor(message: string, detail: APIError) { super(message); this.name = "APIRequestError"; this.code = detail.error?.code; this.conflictId = detail.conflictId; this.currentVersion = detail.currentVersion; } }
 
 function csrfToken(): string {
   return document.cookie.split("; ").find((v) => v.startsWith("csrf_token="))?.slice(11) ?? "";
@@ -23,7 +24,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   if (!response.ok) {
     let detail: APIError = {};
     try { detail = await response.json() as APIError; } catch { /* opaque server error */ }
-    throw new Error(detail.error?.message ?? `Request failed (${response.status})`);
+    throw new APIRequestError(detail.error?.message ?? `Request failed (${response.status})`, detail);
   }
   if (response.status === 204) return undefined as T;
   return response.json() as Promise<T>;
@@ -116,6 +117,8 @@ export async function saveObject(objectID: string, bytes: Uint8Array, baseVersio
     },
   });
 }
+
+export const objectConflicts = (objectID: string) => request<Array<{ id: string; baseVersion: number; currentVersion: number; createdAt: string; resolved: boolean }>>(`/api/v1/objects/${encodeURIComponent(objectID)}/conflicts`);
 
 export function createShareLink(objectID: string, expiresAt: string, version = 0) {
   return request<{ id: string; token: string; objectId: string; version: number; expiresAt: string; commitReceipt: string }>(`/api/v1/objects/${encodeURIComponent(objectID)}/share-links`, {
