@@ -50,7 +50,9 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   device-validated envelope writes are covered by the package integration
   tests; login, device, pairing, and upload endpoints use in-memory token
   buckets. Upload retries are byte-checked, and preview uploads remain
-  content-addressed without creating an attachment row.
+  content-addressed without creating an attachment row. Admin settings/users,
+  audit metadata, team membership, and encrypted comment reads/writes are
+  session- and role-gated here.
 - `internal/app` owns the `.kynotes.lock` data-directory lock; maintenance
   backup refuses to copy a live data directory and restore runs an integrity
   check after replacement.

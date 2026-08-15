@@ -62,7 +62,7 @@ export async function serviceStatus() {
   return { health: health.ok, ready: ready.ok };
 }
 export const adminUsers = () => request<AdminUser[]>("/api/v1/admin/users");
-export const adminAudit = () => request<Array<Record<string, string>>("/api/v1/admin/audit");
+export const adminAudit = () => request<Array<Record<string, string>>>("/api/v1/admin/audit");
 export const adminSettings = () => request<{ defaultTheme: string }>("/api/v1/admin/settings");
 export function updateAdminSettings(defaultTheme: string) { return request<void>("/api/v1/admin/settings", { method: "PATCH", body: JSON.stringify({ defaultTheme }) }); }
 export function updateAdminUser(user: AdminUser) { return request<void>(`/api/v1/admin/users/${encodeURIComponent(user.id)}`, { method: "PATCH", body: JSON.stringify(user) }); }

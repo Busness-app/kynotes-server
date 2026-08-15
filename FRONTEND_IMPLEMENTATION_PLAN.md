@@ -48,9 +48,15 @@ sidebar; it must not replace ordinary note navigation.
 The responsive MVP also includes encrypted, user-defined workspace names, a
 KyPost-inspired settings layout, browser-local theme selection with the full
 15-theme palette, and an admin-only server status panel. Workspace names remain
-ciphertext metadata; the server never receives their plaintext. Server-wide
-configuration remains host-managed until an authenticated admin configuration
-API is added.
+ciphertext metadata; the server never receives their plaintext. The admin
+surface exposes the persisted default theme and metadata-only administration;
+other host-level configuration remains host-managed.
+
+The current client additionally groups personal and team workspaces, supports
+local sorting and pinning, edits Markdown with a safe preview, autosaves and
+supports manual saves, and displays encrypted comments. Admins can set the
+server default theme, manage account role/status, and inspect metadata-only
+audit records.
 
 ## 3. Technology and repository layout
 
