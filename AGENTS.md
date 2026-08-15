@@ -72,6 +72,9 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   editing, and encrypted section anchors for comments. The workspace surface
   labels personal workbooks explicitly, and the admin surface uses tabbed
   server, users, teams, and audit sections.
+- `web/` treats a restored HTTP session as locked until the user unlocks the
+  browser again; note creation also attempts its first server save immediately
+  before relying on autosave or the encrypted retry queue.
 - `internal/httpapi` commit receipts are deterministic SHA-256 commitments over
   opaque object/version metadata and ciphertext digest; share links store only
   token hashes and serve ciphertext without the URL-fragment decryption key.

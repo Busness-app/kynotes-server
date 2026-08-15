@@ -96,10 +96,10 @@ function App() {
             applyTheme(value.defaultTheme as ThemeName);
         })
         .catch(() => {});
+    // A session cookie proves server authentication, not local decryption.
+    // Never enter the workspace with an empty auth secret after a reload.
     session()
-      .then((value) =>
-        setAuth({ username: "", authSecret: "", user: value.user }),
-      )
+      .then(() => setAuth(null))
       .catch(() => {})
       .finally(() => setChecking(false));
   }, []);
@@ -638,6 +638,7 @@ function Workspace({
       setSelectedNote(note);
       setDirty(true);
       persistDraft(note);
+      await save(note, true);
     } catch (error) {
       setError(
         error instanceof Error ? error.message : "Unable to create note",
@@ -1452,22 +1453,12 @@ function SettingsView({
           ← Workspace
         </button>
         <div className="section-label">{admin ? "ADMIN" : "SETTINGS"}</div>
-        <nav className="settings-nav">
-          {!admin && (
-            <>
-              <a href="#appearance">Appearance</a>
-              <a href="#password">Password</a>
-            </>
-          )}
-          {admin && (
-            <>
-              <a href="#server">Server</a>
-              <a href="#users">Users</a>
-              <a href="#teams">Teams</a>
-              <a href="#audit">Audit log</a>
-            </>
-          )}
-        </nav>
+        {!admin && (
+          <nav className="settings-nav">
+            <a href="#appearance">Appearance</a>
+            <a href="#password">Password</a>
+          </nav>
+        )}
       </aside>
       <div className="settings-content">
         <div className="settings-header">
@@ -1479,6 +1470,14 @@ function SettingsView({
               : "Your browser preferences and account security."}
           </p>
         </div>
+        {admin && (
+          <nav className="settings-nav admin-main-tabs" aria-label="Administration sections">
+            <a href="#server">Server</a>
+            <a href="#users">Users</a>
+            <a href="#teams">Teams</a>
+            <a href="#audit">Audit log</a>
+          </nav>
+        )}
         {!admin && (
           <>
             <section id="appearance" className="config-card">
