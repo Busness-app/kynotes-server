@@ -153,3 +153,5 @@ button, input, textarea, select { border-radius: 12px; corner-shape: squircle; }
 .format-toolbar button, .pin-button { border-radius: 10px; corner-shape: squircle; }
 .markdown-preview, .markdown-editor, .comments, .comment { border-radius: 16px; corner-shape: squircle; }
 .comment { overflow: hidden; }
+.editor-actions .danger.quiet { color: #b42318; background: transparent; border: 1px solid transparent; }
+.editor-actions .danger.quiet:hover, .editor-actions .danger.quiet:focus-visible { color: #9b1c12; background: color-mix(in srgb, #b42318 12%, var(--panel)); border-color: color-mix(in srgb, #b42318 30%, var(--line)); }
