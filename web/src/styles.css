@@ -119,6 +119,7 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 .pin-button { width: 36px; color: var(--accent); background: transparent; font-size: 18px; }
 .format-toolbar { display: flex; gap: 6px; margin-top: 18px; }
 .format-toolbar button { padding: 6px 9px; color: var(--ink); background: var(--accent-soft); font-size: 12px; }
+.visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 .markdown-editor { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; min-height: 360px; }
 .markdown-preview { overflow: auto; padding: 28px 0; color: var(--ink); line-height: 1.7; }
 .markdown-preview p { margin: 0 0 12px; }

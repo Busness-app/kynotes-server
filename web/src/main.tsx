@@ -329,6 +329,7 @@ function Workspace({
   const [editorMode, setEditorMode] = useState<"markdown" | "wysiwyg">(
     "markdown",
   );
+  const imageInput = useRef<HTMLInputElement>(null);
   const pinsKey = `kynotes-pins-${auth.user.id}`;
   const pinned = useMemo(() => {
     try {
@@ -852,6 +853,24 @@ function Workspace({
       `${selectedNote.body}${selectedNote.body.endsWith("\n") ? "" : "\n"}${value}\n`,
     );
   }
+  function addInlineImage(file: File) {
+    if (!selectedNote || !file.type.startsWith("image/")) return;
+    // ponytail: inline data URLs keep this dependency-free; move large images to encrypted attachment nodes if media needs grow.
+    if (file.size > 2 * 1024 * 1024) {
+      setError("Inline images are limited to 2 MB. Use an encrypted attachment for larger files.");
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataURL = typeof reader.result === "string" ? reader.result : "";
+      if (!dataURL) return;
+      const filename = file.name.replace(/[\[\]()\r\n]/g, "").trim() || "image";
+      editBody(`${selectedNote.body}${selectedNote.body.endsWith("\n") ? "" : "\n"}\n![${filename}](${dataURL})\n`);
+      setError("Inline image added; it will be encrypted with the note.");
+    };
+    reader.onerror = () => setError("Unable to read image");
+    reader.readAsDataURL(file);
+  }
   async function uploadPending(job: Awaited<ReturnType<typeof pendingUploads>>[number]) {
     const status = await uploadStatus(job.uploadId);
     let nextChunk = status.nextChunk;
@@ -1282,6 +1301,8 @@ function Workspace({
                     <button onClick={() => insertMarkdown("- list item")}>List</button>
                     <button onClick={() => insertMarkdown("`code`")}>Code</button>
                   </>}
+                  <button onClick={() => imageInput.current?.click()}>Image</button>
+                  <input ref={imageInput} className="visually-hidden" type="file" accept="image/*" onChange={(event) => { const file = event.target.files?.[0]; if (file) addInlineImage(file); event.currentTarget.value = ""; }} />
                 </div>
                 <div className="single-pane-editor">
                   {editorMode === "markdown" ? (
