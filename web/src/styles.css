@@ -138,6 +138,7 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 .admin-user select { padding: 6px; border: 1px solid var(--line); background: var(--panel); color: var(--ink-strong); }
 .audit-row { display: grid; justify-content: initial; }
 .audit-row span { color: var(--ink); font: 11px Mono, monospace; }
+.audit-log { max-height: min(60vh, 560px); overflow-y: auto; overscroll-behavior: contain; padding-right: 8px; scrollbar-color: var(--accent) var(--accent-soft); }
 @media (max-width: 800px) { .settings-layout { grid-template-columns: 1fr; } .settings-sidebar { border-right: 0; border-bottom: 1px solid var(--line); padding: 17px 18px; } .settings-sidebar .section-label { margin: 24px 10px 12px; } .settings-nav { display: flex; overflow: auto; } .settings-content { padding: 28px 18px; } }
 @media (max-width: 900px) { .markdown-editor { grid-template-columns: 1fr; } .markdown-preview { min-height: 140px; border-top: 1px solid var(--line); } }
 .admin-settings-layout .settings-content { max-width: 1040px; padding-top: 34px; }

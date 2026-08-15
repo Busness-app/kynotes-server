@@ -1685,18 +1685,20 @@ function SettingsView({
             </div>
             <section id="audit" className="config-card">
               <h2>Audit log</h2>
-              {audit.length === 0 ? (
-                <p className="config-muted">No audit events recorded.</p>
-              ) : (
-                audit.map((entry, index) => (
-                  <div className="audit-row" key={`${entry.at}-${index}`}>
-                    <strong>{entry.event}</strong>
-                    <span>
-                      {entry.outcome} · {entry.at}
-                    </span>
-                  </div>
-                ))
-              )}
+              <div className="audit-log">
+                {audit.length === 0 ? (
+                  <p className="config-muted">No audit events recorded.</p>
+                ) : (
+                  audit.map((entry, index) => (
+                    <div className="audit-row" key={`${entry.at}-${index}`}>
+                      <strong>{entry.event}</strong>
+                      <span>
+                        {entry.outcome} · {entry.at}
+                      </span>
+                    </div>
+                  ))
+                )}
+              </div>
             </section>
           </>
         )}
