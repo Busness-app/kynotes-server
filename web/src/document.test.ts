@@ -13,6 +13,12 @@ describe("note document format", () => {
     expect(documentText(stringifyNoteDocument(document))).toBe("Launch Ship it.");
   });
 
+  it("keeps image-only documents addressable", () => {
+    const document = { type: "doc", content: [{ type: "image", attrs: { src: "attachment://att_image", alt: "diagram" } }] };
+    expect(parseNoteDocument(stringifyNoteDocument(document)).document).toEqual(document);
+    expect(documentText(stringifyNoteDocument(document))).toBe("[diagram]");
+  });
+
   it("starts invalid content as an empty document", () => {
     expect(parseNoteDocument("not Markdown").document).toEqual(emptyNoteDocument().document);
   });

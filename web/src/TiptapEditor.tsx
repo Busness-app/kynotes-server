@@ -66,6 +66,13 @@ export function TiptapEditor({ value, onChange, imageSources = {}, onReady }: Pr
     };
   }, [editor, onReady]);
 
+  useEffect(() => {
+    if (!editor || editor.isDestroyed) return;
+    if (JSON.stringify(editor.getJSON()) !== JSON.stringify(value)) {
+      editor.commands.setContent(value, { emitUpdate: false });
+    }
+  }, [editor, value]);
+
   useEffect(() => resolveImages(root.current, imageSources), [imageSources]);
 
   return <div ref={root} className="tiptap-editor"><EditorContent editor={editor} /></div>;

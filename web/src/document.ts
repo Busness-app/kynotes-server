@@ -18,6 +18,9 @@ export function parseNoteDocument(body: string): NoteDocument {
     if (value.format === NOTE_DOCUMENT_FORMAT && value.document?.type === "doc") {
       return { format: NOTE_DOCUMENT_FORMAT, document: value.document };
     }
+    if ((value as JSONContent).type === "doc") {
+      return { format: NOTE_DOCUMENT_FORMAT, document: value as JSONContent };
+    }
   } catch {
     /* Empty or invalid content is treated as a new document. */
   }
@@ -33,6 +36,7 @@ export function documentText(body: string): string {
   const text: string[] = [];
   const visit = (node: JSONContent) => {
     if (typeof node.text === "string") text.push(node.text);
+    if (node.type === "image" && typeof node.attrs?.alt === "string") text.push(`[${node.attrs.alt}]`);
     node.content?.forEach(visit);
   };
   visit(value);
