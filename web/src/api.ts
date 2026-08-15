@@ -3,7 +3,7 @@ export type Session = { user: User; expiresAt: string; hardExpiresAt: string };
 export type Container = { id: string; kind: string; metaCiphertext: string; metaVersion: number; changeSeq: number; keyGeneration: number };
 export type Comment = { id: string; authorUserId: string; username: string; bodyCiphertext: string; keyGeneration: number; createdAt: string };
 export type AdminUser = { id: string; username: string; role: string; status: string; quotaBytes: number; createdAt: string };
-export type AdminTeam = { id: string; kind: string; ownerUserId: string };
+export type AdminTeam = { id: string; kind: string; ownerUserId: string; metaCiphertext?: string; metaVersion?: number; changeSeq?: number; keyGeneration?: number };
 export type Change = { id: string; kind: string; changeSeq: number; deleted: boolean };
 export type Note = { id: string; title: string; body: string; version: number; updatedAt: string };
 
@@ -66,7 +66,7 @@ export async function serviceStatus() {
 export const adminUsers = () => request<AdminUser[]>("/api/v1/admin/users");
 export const adminAudit = () => request<Array<Record<string, string>>>("/api/v1/admin/audit");
 export const adminTeams = () => request<AdminTeam[]>("/api/v1/admin/teams");
-export function createAdminTeam() { return request<AdminTeam>("/api/v1/admin/teams", { method: "POST", body: JSON.stringify({ metaCiphertext: "" }) }); }
+export function createAdminTeam(metaCiphertext: string) { return request<AdminTeam>("/api/v1/admin/teams", { method: "POST", body: JSON.stringify({ metaCiphertext }) }); }
 export function createAdminUser(input: { username: string; authSecret: string; loginSalt: string; iterations: number; role: string }) { return request<{ id: string }>("/api/v1/admin/users", { method: "POST", body: JSON.stringify(input) }); }
 export function resetAdminPassword(id: string, input: { newAuthSecret: string; newLoginSalt: string; iterations: number }) { return request<void>(`/api/v1/admin/users/${encodeURIComponent(id)}/password`, { method: "POST", body: JSON.stringify(input) }); }
 export function addAdminTeamMember(teamID: string, userID: string, role: string) { return request<void>(`/api/v1/admin/teams/${encodeURIComponent(teamID)}/members`, { method: "POST", body: JSON.stringify({ userId: userID, role }) }); }

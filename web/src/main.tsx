@@ -36,6 +36,7 @@ import {
   updateAdminUser,
   updateContainer,
   updatePresence,
+  type AdminTeam,
   type AdminUser,
   type Container,
   type Note,
@@ -862,6 +863,7 @@ function Workspace({
       {view !== "workspace" ? (
         <SettingsView
           admin={view === "admin"}
+          authSecret={auth.authSecret}
           username={auth.username}
           onBack={() => setView("workspace")}
         />
@@ -1351,25 +1353,63 @@ function AdminUserActions({
   );
 }
 
-function AdminTeams({ users }: { users: AdminUser[] }) {
-  const [teams, setTeams] = useState<
-    Array<{ id: string; kind: string; ownerUserId: string }>
-  >([]);
+function AdminTeams({ users, authSecret }: { users: AdminUser[]; authSecret: string }) {
+  const [teams, setTeams] = useState<AdminTeam[]>([]);
+  const [teamNames, setTeamNames] = useState<Record<string, string>>({});
   const [team, setTeam] = useState("");
   const [user, setUser] = useState("");
   const [role, setRole] = useState("editor");
-  const reload = () =>
-    void adminTeams()
-      .then(setTeams)
-      .catch(() => {});
-  useEffect(reload, []);
-  async function createTeam() {
+  async function reload() {
     try {
-      const created = await createAdminTeam();
-      setTeams((value) => [created, ...value]);
-      reload();
+      const nextTeams = await adminTeams();
+      const nextNames: Record<string, string> = {};
+      for (const entry of nextTeams) {
+        if (!entry.metaCiphertext) continue;
+        try {
+          nextNames[entry.id] = (
+            await decryptContainerMeta(authSecret, entry.id, fromBase64(entry.metaCiphertext))
+          ).name;
+        } catch {
+          /* Metadata encrypted by another account remains opaque. */
+        }
+      }
+      setTeams(nextTeams);
+      setTeamNames(nextNames);
+    } catch {
+      /* The admin page remains usable if the list refresh is unavailable. */
+    }
+  }
+  useEffect(() => {
+    void reload();
+  }, [authSecret]);
+  async function createTeam() {
+    const name = prompt("Team name", "New team")?.trim();
+    if (!name) return;
+    try {
+      // The server mints the container ID, which is part of the metadata key.
+      // Create first, then immediately replace the empty metadata with ciphertext.
+      const created = await createAdminTeam("");
+      const encrypted = await encryptContainerMeta(authSecret, created.id, name);
+      const encoded = btoa(String.fromCharCode(...encrypted));
+      await updateContainer(created.id, encoded, created.metaVersion ?? 0);
+      setTeam(created.id);
+      await reload();
     } catch (error) {
       alert(error instanceof Error ? error.message : "Unable to create team");
+    }
+  }
+  async function renameTeam() {
+    const selected = teams.find((entry) => entry.id === team);
+    if (!selected) return;
+    const name = prompt("Team name", teamNames[selected.id] ?? "Team")?.trim();
+    if (!name) return;
+    try {
+      const encrypted = await encryptContainerMeta(authSecret, selected.id, name);
+      const encoded = btoa(String.fromCharCode(...encrypted));
+      await updateContainer(selected.id, encoded, selected.metaVersion ?? 0);
+      await reload();
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "Unable to rename team");
     }
   }
   async function add() {
@@ -1394,11 +1434,14 @@ function AdminTeams({ users }: { users: AdminUser[] }) {
           <option value="">Select team</option>
           {teams.map((entry) => (
             <option key={entry.id} value={entry.id}>
-              {entry.id}
+              {teamNames[entry.id] ?? "Unnamed team"} · {entry.id}
             </option>
           ))}
         </select>
       </label>
+      <button className="quiet" onClick={() => void renameTeam()} disabled={!team}>
+        Rename team
+      </button>
       <label className="field">
         <span>Person</span>
         <select value={user} onChange={(event) => setUser(event.target.value)}>
@@ -1428,10 +1471,12 @@ function AdminTeams({ users }: { users: AdminUser[] }) {
 
 function SettingsView({
   admin,
+  authSecret,
   onBack,
   username,
 }: {
   admin: boolean;
+  authSecret: string;
   onBack: () => void;
   username: string;
 }) {
@@ -1566,7 +1611,7 @@ function SettingsView({
               ))}
             </section>
             <div id="teams">
-              <AdminTeams users={users} />
+              <AdminTeams users={users} authSecret={authSecret} />
             </div>
             <section id="audit" className="config-card">
               <h2>Audit log</h2>

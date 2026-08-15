@@ -62,20 +62,22 @@ func AdminRoutes(mux *http.ServeMux, db *sql.DB) {
 		writeJSON(w, map[string]any{"id": teamID, "kind": "team", "ownerUserId": s.UserID, "metaCiphertext": in.MetaCiphertext, "metaVersion": 0, "changeSeq": 1, "keyGeneration": 1})
 	})))
 	mux.Handle("GET /api/v1/admin/teams", auth.RequireAdmin(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		rows, err := db.Query(`SELECT id,kind,owner_user_id FROM containers WHERE kind='team' AND deleted_at='' ORDER BY id`)
+		rows, err := db.Query(`SELECT id,kind,owner_user_id,meta_ciphertext,meta_version,change_seq,key_generation FROM containers WHERE kind='team' AND deleted_at='' ORDER BY id`)
 		if err != nil {
 			WriteError(w, r, 500, "internal", "internal server error")
 			return
 		}
 		defer rows.Close()
-		out := []map[string]string{}
+		out := []map[string]any{}
 		for rows.Next() {
 			var id, kind, owner string
-			if rows.Scan(&id, &kind, &owner) != nil {
+			var meta []byte
+			var metaVersion, changeSeq, keyGeneration int64
+			if rows.Scan(&id, &kind, &owner, &meta, &metaVersion, &changeSeq, &keyGeneration) != nil {
 				WriteError(w, r, 500, "internal", "internal server error")
 				return
 			}
-			out = append(out, map[string]string{"id": id, "kind": kind, "ownerUserId": owner})
+			out = append(out, map[string]any{"id": id, "kind": kind, "ownerUserId": owner, "metaCiphertext": base64.StdEncoding.EncodeToString(meta), "metaVersion": metaVersion, "changeSeq": changeSeq, "keyGeneration": keyGeneration})
 		}
 		writeJSON(w, out)
 	})))
