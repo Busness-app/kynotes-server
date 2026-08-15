@@ -17,6 +17,7 @@ import {
   createContainer,
   createObject,
   createUpload,
+  deleteUpload,
   createSealedShareLink,
   deleteObject,
   downloadAttachment,
@@ -42,6 +43,7 @@ import {
   updateContainer,
   updatePresence,
   uploadChunk,
+  uploadStatus,
   type AdminTeam,
   type AdminUser,
   type Container,
@@ -70,8 +72,11 @@ import {
   clearQueuedSave,
   deleteNote as deleteCachedNote,
   getNote,
+  clearUpload,
   pendingSaves,
+  pendingUploads,
   putNote,
+  putUpload,
   queueSave,
 } from "./storage";
 import {
@@ -293,6 +298,8 @@ function Workspace({
   const [selectedNote, setSelectedNote] = useState<Note | null>(null);
   const [commentsForNote, setCommentsForNote] = useState<PlainComment[]>([]);
   const [attachmentsForNote, setAttachmentsForNote] = useState<PlainAttachment[]>([]);
+  const [uploadProgress, setUploadProgress] = useState<Record<string, { name: string; uploaded: number; total: number; failed?: boolean }>>({});
+  const cancelledUploads = useRef(new Set<string>());
   const [commentText, setCommentText] = useState("");
   const [commentSection, setCommentSection] = useState("");
   const [commitReceipt, setCommitReceipt] = useState("");
@@ -300,6 +307,7 @@ function Workspace({
   const [lastSavedAt, setLastSavedAt] = useState("");
   const [syncStatus, setSyncStatus] = useState<"saved" | "local" | "syncing" | "attention">("saved");
   const draining = useRef(false);
+  const drainingUploads = useRef(false);
   const syncChannel = useRef<BroadcastChannel | null>(null);
   const selectedNoteRef = useRef<Note | null>(null);
   selectedNoteRef.current = selectedNote;
@@ -355,6 +363,11 @@ function Workspace({
   const links = useMemo(() => graphEdges(notes), [notes]);
   useEffect(() => {
     void loadContainers();
+  }, []);
+  useEffect(() => {
+    void resumeUploads();
+    const timer = window.setInterval(() => void resumeUploads(), 15000);
+    return () => window.clearInterval(timer);
   }, []);
   useEffect(() => {
     const channel = typeof BroadcastChannel === "undefined" ? null : new BroadcastChannel("kynotes-sync");
@@ -839,6 +852,53 @@ function Workspace({
       `${selectedNote.body}${selectedNote.body.endsWith("\n") ? "" : "\n"}${value}\n`,
     );
   }
+  async function uploadPending(job: Awaited<ReturnType<typeof pendingUploads>>[number]) {
+    const status = await uploadStatus(job.uploadId);
+    let nextChunk = status.nextChunk;
+    let offset = nextChunk * job.chunkBytes;
+    setUploadProgress((value) => ({ ...value, [job.uploadId]: { name: job.name, uploaded: status.receivedBytes, total: job.payload.byteLength } }));
+    while (offset < job.payload.byteLength) {
+      if (cancelledUploads.current.has(job.uploadId)) throw new Error("Upload cancelled");
+      const chunk = job.payload.slice(offset, offset + job.chunkBytes);
+      const result = await uploadChunk(job.uploadId, nextChunk, chunk);
+      nextChunk = result.nextChunk;
+      offset += chunk.byteLength;
+      await putUpload({ ...job, nextChunk });
+      setUploadProgress((value) => ({ ...value, [job.uploadId]: { name: job.name, uploaded: result.receivedBytes, total: job.payload.byteLength } }));
+    }
+    const finalized = await finalizeUpload(job.uploadId, job.metadataCiphertext, job.keyGeneration);
+    await attachToObject(job.objectID, finalized.attachmentId, job.objectVersion);
+    await clearUpload(job.uploadId);
+    setUploadProgress((value) => { const next = { ...value }; delete next[job.uploadId]; return next; });
+  }
+  async function resumeUploads() {
+    if (drainingUploads.current) return;
+    drainingUploads.current = true;
+    try {
+      for (const job of await pendingUploads()) {
+        try {
+          await uploadPending(job);
+          setError(`Attachment uploaded: ${job.name}`);
+        } catch {
+          setUploadProgress((value) => ({ ...value, [job.uploadId]: { name: job.name, uploaded: 0, total: job.payload.byteLength, failed: true } }));
+          setError(`Attachment waiting to resume: ${job.name}`);
+        }
+      }
+    } catch { /* IndexedDB is optional until the browser supports it. */ }
+    finally { drainingUploads.current = false; }
+  }
+  async function cancelAttachmentUpload(uploadId: string) {
+    cancelledUploads.current.add(uploadId);
+    try { await deleteUpload(uploadId); } catch { /* The server may already have expired it. */ }
+    await clearUpload(uploadId);
+    setUploadProgress((value) => { const next = { ...value }; delete next[uploadId]; return next; });
+  }
+  async function retryAttachmentUpload(uploadId: string) {
+    cancelledUploads.current.delete(uploadId);
+    const job = (await pendingUploads()).find((entry) => entry.uploadId === uploadId);
+    if (!job) return;
+    try { await uploadPending(job); } catch { setError(`Attachment waiting to resume: ${job.name}`); }
+  }
   async function addAttachment(file: File) {
     if (!selected || !selectedNote) return;
     setBusy(true);
@@ -846,14 +906,10 @@ function Workspace({
       const encrypted = await encryptAttachment(auth.authSecret, selected.id, new Uint8Array(await file.arrayBuffer()));
       const digest = [...new Uint8Array(await crypto.subtle.digest("SHA-256", encrypted.slice().buffer as ArrayBuffer))].map((byte) => byte.toString(16).padStart(2, "0")).join("");
       const upload = await createUpload(selected.id, encrypted.byteLength, digest);
-      for (let offset = 0, index = upload.nextChunk; offset < encrypted.byteLength; index++) {
-        const chunk = encrypted.slice(offset, offset + upload.chunkBytes);
-        await uploadChunk(upload.uploadId, index, chunk);
-        offset += chunk.byteLength;
-      }
       const metadata = await encryptAttachmentMetadata(auth.authSecret, selected.id, { name: file.name, type: file.type, size: file.size });
-      const finalized = await finalizeUpload(upload.uploadId, btoa(String.fromCharCode(...metadata)), selected.keyGeneration);
-      await attachToObject(selectedNote.id, finalized.attachmentId, selectedNote.version);
+      const job = { uploadId: upload.uploadId, containerID: selected.id, objectID: selectedNote.id, objectVersion: selectedNote.version, keyGeneration: selected.keyGeneration, chunkBytes: upload.chunkBytes, nextChunk: upload.nextChunk, payload: encrypted, metadataCiphertext: btoa(String.fromCharCode(...metadata)), name: file.name, type: file.type, size: file.size };
+      await putUpload(job);
+      await uploadPending(job);
       await selectNote(selectedNote);
       setError("Attachment uploaded and encrypted.");
     } catch (error) {
@@ -1290,6 +1346,15 @@ function Workspace({
                 </section>
                 <section className="attachments">
                   <h3>Attachments</h3>
+                  {Object.entries(uploadProgress).map(([uploadId, progress]) => (
+                    <div className="upload-row" key={uploadId}>
+                      <span>{progress.name} · {progress.failed ? "waiting to retry" : `${Math.round(progress.uploaded / Math.max(progress.total, 1) * 100)}%`}</span>
+                      <div className="upload-actions">
+                        {progress.failed && <button className="quiet" onClick={() => void retryAttachmentUpload(uploadId)}>Retry</button>}
+                        <button className="quiet" onClick={() => void cancelAttachmentUpload(uploadId)}>Cancel</button>
+                      </div>
+                    </div>
+                  ))}
                   {attachmentsForNote.map((attachment) => (
                     <button className="attachment-row" key={attachment.id} onClick={() => void openAttachment(attachment)}>
                       <strong>{attachment.name}</strong>

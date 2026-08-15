@@ -137,6 +137,9 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 .attachment-row span { color: var(--ink); font: 11px Mono, monospace; }
 .attachment-picker { display: inline-block; margin-top: 10px; padding: 10px 12px; color: var(--accent); background: var(--panel); border: 1px dashed var(--line); cursor: pointer; font-size: 12px; }
 .attachment-picker input { display: none; }
+.upload-row { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 10px 12px; margin: 5px 0; border: 1px solid var(--line); color: var(--ink); font-size: 12px; }
+.upload-actions { display: flex; gap: 4px; }
+.upload-actions .quiet { margin: 0; padding: 3px 6px; font-size: 11px; }
 .member-row, .admin-user, .audit-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 10px; color: var(--ink); font-size: 12px; }
 .member-row { border-top: 1px solid var(--line); }
 .member-row .quiet { padding: 2px; font-size: 11px; }

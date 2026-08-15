@@ -3,13 +3,15 @@ const storeName = "notes";
 
 export type CachedNote = { id: string; containerID: string; version: number; payload: Uint8Array; updatedAt: string; keyGeneration?: number };
 export type PendingSave = CachedNote;
+export type PendingUpload = { uploadId: string; containerID: string; objectID: string; objectVersion: number; keyGeneration: number; chunkBytes: number; nextChunk: number; payload: Uint8Array; metadataCiphertext: string; name: string; type: string; size: number };
 
 function openDatabase(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
-    const request = indexedDB.open(databaseName, 2);
+    const request = indexedDB.open(databaseName, 3);
     request.onupgradeneeded = () => {
       if (!request.result.objectStoreNames.contains(storeName)) request.result.createObjectStore(storeName, { keyPath: "id" });
       if (!request.result.objectStoreNames.contains("pending")) request.result.createObjectStore("pending", { keyPath: "id" });
+      if (!request.result.objectStoreNames.contains("uploads")) request.result.createObjectStore("uploads", { keyPath: "uploadId" });
     };
     request.onsuccess = () => {
       const db = request.result;
@@ -83,5 +85,21 @@ export async function clearQueuedSave(id: string): Promise<void> {
     const request = db.transaction("pending", "readwrite").objectStore("pending").delete(id);
     request.onsuccess = () => resolve(); request.onerror = () => reject(request.error);
   });
+  db.close();
+}
+
+export async function putUpload(upload: PendingUpload): Promise<void> {
+  const db = await openDatabase();
+  await new Promise<void>((resolve, reject) => { const request = db.transaction("uploads", "readwrite").objectStore("uploads").put(upload); request.onsuccess = () => resolve(); request.onerror = () => reject(request.error); });
+  db.close();
+}
+export async function pendingUploads(): Promise<PendingUpload[]> {
+  const db = await openDatabase();
+  const result = await new Promise<PendingUpload[]>((resolve, reject) => { const request = db.transaction("uploads").objectStore("uploads").getAll(); request.onsuccess = () => resolve(request.result as PendingUpload[]); request.onerror = () => reject(request.error); });
+  db.close(); return result;
+}
+export async function clearUpload(uploadId: string): Promise<void> {
+  const db = await openDatabase();
+  await new Promise<void>((resolve, reject) => { const request = db.transaction("uploads", "readwrite").objectStore("uploads").delete(uploadId); request.onsuccess = () => resolve(); request.onerror = () => reject(request.error); });
   db.close();
 }
