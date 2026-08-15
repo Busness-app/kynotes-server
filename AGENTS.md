@@ -86,6 +86,9 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   token hashes and serve ciphertext without the URL-fragment decryption key.
   Browser-sealed links use a dedicated random content key and never reuse the
   authentication or workspace key.
+- `internal/httpapi` exposes authenticated object attachment listings; the web
+  client encrypts attachment bytes and metadata before chunked upload and
+  decrypts them only for the current browser session.
 - `internal/httpapi` presence is TTL-only in memory and membership-gated;
   notifications expose mention metadata only and use the existing 90-second
   foreground refresh cadence in the browser.

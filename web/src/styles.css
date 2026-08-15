@@ -131,6 +131,12 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 .comment-compose { display: flex; gap: 8px; margin-top: 12px; }
 .comment-compose input { min-width: 0; flex: 1; padding: 10px; border: 1px solid var(--line); background: var(--panel); color: var(--ink-strong); }
 .comment-compose button { padding: 10px 14px; }
+.attachments { border-top: 1px solid var(--line); padding-top: 18px; margin-top: 18px; }
+.attachments h3 { margin: 0 0 12px; font-weight: 500; }
+.attachment-row { display: flex; justify-content: space-between; width: 100%; padding: 10px 12px; margin: 5px 0; background: var(--accent-soft); color: var(--ink-strong); text-align: left; }
+.attachment-row span { color: var(--ink); font: 11px Mono, monospace; }
+.attachment-picker { display: inline-block; margin-top: 10px; padding: 10px 12px; color: var(--accent); background: var(--panel); border: 1px dashed var(--line); cursor: pointer; font-size: 12px; }
+.attachment-picker input { display: none; }
 .member-row, .admin-user, .audit-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 10px; color: var(--ink); font-size: 12px; }
 .member-row { border-top: 1px solid var(--line); }
 .member-row .quiet { padding: 2px; font-size: 11px; }

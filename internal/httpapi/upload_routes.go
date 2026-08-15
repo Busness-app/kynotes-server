@@ -396,6 +396,27 @@ func UploadRoutes(mux *http.ServeMux, db *sql.DB, blobs *blobstore.Store, cfg co
 		w.Header().Set("Content-Type", "application/octet-stream")
 		http.ServeContent(w, r, "", time.Time{}, f)
 	})))
+	mux.Handle("GET /api/v1/objects/{id}/attachments", auth.RequireSession(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		s, _ := auth.SessionFromContext(r)
+		rows, e := db.Query(`SELECT a.id,a.ciphertext_bytes,a.metadata_ciphertext,a.key_generation FROM attachments a JOIN attachment_refs ar ON ar.attachment_id=a.id JOIN objects o ON o.id=ar.object_id JOIN memberships m ON m.container_id=o.container_id AND m.user_id=? WHERE o.id=? AND m.revoked_at='' AND a.deleted_at='' ORDER BY ar.created_at`, s.UserID, r.PathValue("id"))
+		if e != nil {
+			WriteError(w, r, 500, "internal", "internal server error")
+			return
+		}
+		defer rows.Close()
+		out := []map[string]any{}
+		for rows.Next() {
+			var id string
+			var bytes, generation int64
+			var meta []byte
+			if rows.Scan(&id, &bytes, &meta, &generation) != nil {
+				WriteError(w, r, 500, "internal", "internal server error")
+				return
+			}
+			out = append(out, map[string]any{"id": id, "bytes": bytes, "metadataCiphertext": base64.StdEncoding.EncodeToString(meta), "keyGeneration": generation})
+		}
+		writeJSON(w, out)
+	})))
 	mux.Handle("POST /api/v1/objects/{id}/attachments", auth.RequireSession(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if auth.CheckCSRF(r) != nil {
 			WriteError(w, r, 403, "csrf_failed", "csrf validation failed")

@@ -119,6 +119,13 @@ export async function saveObject(objectID: string, bytes: Uint8Array, baseVersio
   });
 }
 
+export function createUpload(containerID: string, declaredBytes: number, expectedDigest: string) { return request<{ uploadId: string; chunkBytes: number; nextChunk: number }>(`/api/v1/containers/${encodeURIComponent(containerID)}/uploads`, { method: "POST", body: JSON.stringify({ declaredBytes, expectedDigest, kind: "attachment" }) }); }
+export function uploadChunk(uploadID: string, index: number, bytes: Uint8Array) { return request<{ receivedBytes: number; nextChunk: number }>(`/api/v1/uploads/${encodeURIComponent(uploadID)}`, { method: "PATCH", body: bytes as unknown as BodyInit, headers: { "Content-Type": "application/octet-stream", "X-Kynotes-Chunk-Index": String(index) } }); }
+export function finalizeUpload(uploadID: string, metadataCiphertext: string, keyGeneration: number) { return request<{ attachmentId: string; digest: string; bytes: number }>(`/api/v1/uploads/${encodeURIComponent(uploadID)}/finalize`, { method: "POST", body: JSON.stringify({ metadataCiphertext, keyGeneration }) }); }
+export function attachToObject(objectID: string, attachmentID: string, objectVersion: number) { return request<void>(`/api/v1/objects/${encodeURIComponent(objectID)}/attachments`, { method: "POST", body: JSON.stringify({ attachmentId: attachmentID, objectVersion }) }); }
+export const objectAttachments = (objectID: string) => request<Array<{ id: string; bytes: number; metadataCiphertext: string; keyGeneration: number }>>(`/api/v1/objects/${encodeURIComponent(objectID)}/attachments`);
+export async function downloadAttachment(attachmentID: string) { const response = await fetch(`/api/v1/attachments/${encodeURIComponent(attachmentID)}`, { credentials: "include", headers: { Accept: "application/octet-stream" } }); if (!response.ok) throw new Error("Unable to download attachment"); return new Uint8Array(await response.arrayBuffer()); }
+
 export const objectConflicts = (objectID: string) => request<Array<{ id: string; baseVersion: number; currentVersion: number; createdAt: string; resolved: boolean }>>(`/api/v1/objects/${encodeURIComponent(objectID)}/conflicts`);
 
 export function createShareLink(objectID: string, expiresAt: string, version = 0) {

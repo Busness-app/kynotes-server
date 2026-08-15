@@ -5,6 +5,7 @@ import {
   adminAudit,
   adminTeams,
   adminUsers,
+  attachToObject,
   APIRequestError,
   changePassword,
   changes,
@@ -15,9 +16,12 @@ import {
   createComment,
   createContainer,
   createObject,
+  createUpload,
   createSealedShareLink,
   deleteObject,
+  downloadAttachment,
   fetchShareCiphertext,
+  finalizeUpload,
   inviteMember,
   login,
   loginParams,
@@ -25,6 +29,7 @@ import {
   members,
   notifications,
   objectConflicts,
+  objectAttachments,
   presence,
   readObject,
   removeMember,
@@ -36,6 +41,7 @@ import {
   updateAdminUser,
   updateContainer,
   updatePresence,
+  uploadChunk,
   type AdminTeam,
   type AdminUser,
   type Container,
@@ -44,11 +50,15 @@ import {
 } from "./api";
 import {
   decryptComment,
+  decryptAttachment,
+  decryptAttachmentMetadata,
   decryptContainerMeta,
   decryptNote,
   decryptSharePayload,
   deriveAuthSecret,
   encryptComment,
+  encryptAttachment,
+  encryptAttachmentMetadata,
   encryptContainerMeta,
   encryptNote,
   encryptSharePayload,
@@ -89,6 +99,7 @@ type PlainComment = {
   section?: string;
   createdAt: string;
 };
+type PlainAttachment = { id: string; name: string; type: string; size: number };
 
 function App() {
   const [auth, setAuth] = useState<AuthState | null>(null);
@@ -281,6 +292,7 @@ function Workspace({
   const [notes, setNotes] = useState<Note[]>([]);
   const [selectedNote, setSelectedNote] = useState<Note | null>(null);
   const [commentsForNote, setCommentsForNote] = useState<PlainComment[]>([]);
+  const [attachmentsForNote, setAttachmentsForNote] = useState<PlainAttachment[]>([]);
   const [commentText, setCommentText] = useState("");
   const [commentSection, setCommentSection] = useState("");
   const [commitReceipt, setCommitReceipt] = useState("");
@@ -470,6 +482,7 @@ function Workspace({
     setSelected(container);
     setSelectedNote(null);
     setCommentsForNote([]);
+    setAttachmentsForNote([]);
     try {
       const result = await changes(container.id);
       const loaded: Note[] = [];
@@ -555,6 +568,19 @@ function Workspace({
       setCommentsForNote(decoded);
     } catch {
       setCommentsForNote([]);
+    }
+    try {
+      const remote = await objectAttachments(note.id);
+      const decoded: PlainAttachment[] = [];
+      for (const item of remote) {
+        try {
+          const metadata = await decryptAttachmentMetadata(auth.authSecret, selected!.id, fromBase64(item.metadataCiphertext));
+          decoded.push({ id: item.id, ...metadata });
+        } catch { /* Ignore metadata encrypted for another key. */ }
+      }
+      setAttachmentsForNote(decoded);
+    } catch {
+      setAttachmentsForNote([]);
     }
   }
   async function newWorkspace() {
@@ -812,6 +838,42 @@ function Workspace({
     editBody(
       `${selectedNote.body}${selectedNote.body.endsWith("\n") ? "" : "\n"}${value}\n`,
     );
+  }
+  async function addAttachment(file: File) {
+    if (!selected || !selectedNote) return;
+    setBusy(true);
+    try {
+      const encrypted = await encryptAttachment(auth.authSecret, selected.id, new Uint8Array(await file.arrayBuffer()));
+      const digest = [...new Uint8Array(await crypto.subtle.digest("SHA-256", encrypted.slice().buffer as ArrayBuffer))].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+      const upload = await createUpload(selected.id, encrypted.byteLength, digest);
+      for (let offset = 0, index = upload.nextChunk; offset < encrypted.byteLength; index++) {
+        const chunk = encrypted.slice(offset, offset + upload.chunkBytes);
+        await uploadChunk(upload.uploadId, index, chunk);
+        offset += chunk.byteLength;
+      }
+      const metadata = await encryptAttachmentMetadata(auth.authSecret, selected.id, { name: file.name, type: file.type, size: file.size });
+      const finalized = await finalizeUpload(upload.uploadId, btoa(String.fromCharCode(...metadata)), selected.keyGeneration);
+      await attachToObject(selectedNote.id, finalized.attachmentId, selectedNote.version);
+      await selectNote(selectedNote);
+      setError("Attachment uploaded and encrypted.");
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "Unable to upload attachment");
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function openAttachment(attachment: PlainAttachment) {
+    if (!selected) return;
+    try {
+      const encrypted = await downloadAttachment(attachment.id);
+      const plaintext = await decryptAttachment(auth.authSecret, selected.id, encrypted);
+      const url = URL.createObjectURL(new Blob([plaintext.slice().buffer as ArrayBuffer], { type: attachment.type || "application/octet-stream" }));
+      const link = document.createElement("a");
+      link.href = url; link.download = attachment.name; link.click();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "Unable to open attachment");
+    }
   }
   async function addComment() {
     if (!selectedNote || !selected || !commentText.trim()) return;
@@ -1225,6 +1287,19 @@ function Workspace({
                       Comment
                     </button>
                   </div>
+                </section>
+                <section className="attachments">
+                  <h3>Attachments</h3>
+                  {attachmentsForNote.map((attachment) => (
+                    <button className="attachment-row" key={attachment.id} onClick={() => void openAttachment(attachment)}>
+                      <strong>{attachment.name}</strong>
+                      <span>{Math.ceil(attachment.size / 1024)} KB</span>
+                    </button>
+                  ))}
+                  <label className="attachment-picker">
+                    <span>＋ Add encrypted file</span>
+                    <input type="file" disabled={busy} onChange={(event) => { const file = event.target.files?.[0]; if (file) void addAttachment(file); event.currentTarget.value = ""; }} />
+                  </label>
                 </section>
               </>
             ) : (
