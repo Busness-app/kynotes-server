@@ -29,6 +29,7 @@ func NewRouter(log *logging.Logger, max int64, ready func() bool, extras ...any)
 	}
 	if db != nil {
 		AuthRoutes(mux, db, cfg)
+		AdminRoutes(mux, db)
 		ContainerRoutes(mux, db)
 		SyncRoutes(mux, db)
 		CollabRoutes(mux, db)

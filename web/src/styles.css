@@ -86,4 +86,39 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 .field { display: grid; gap: 8px; margin-top: 20px; color: var(--ink); font-size: 13px; }
 .field select { padding: 12px; border: 1px solid var(--line); color: var(--ink-strong); background: var(--panel); }
 .status-line { color: var(--accent); font: 12px Mono, monospace; margin-bottom: 0; }
+.auth-page { background: radial-gradient(circle at 15% 10%, var(--panel), transparent 35%), var(--bg); }
+.auth-card { background: var(--panel); border-color: var(--line); box-shadow: 12px 12px 0 var(--accent-soft); }
+.auth-card h1, .auth-card .lede, .auth-card .hint, .auth-card form label { color: var(--ink-strong); }
+.auth-card form input { background: var(--bg); color: var(--ink-strong); border-color: var(--line); }
+.auth-card form input:focus, .title-input:focus, .body-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--glow); }
+.auth-card form button { background: var(--accent); color: var(--button-text); }
+.team-label { margin-top: 26px; }
+.list-actions { display: flex; align-items: center; gap: 8px; }
+.list-actions select { border: 1px solid var(--line); padding: 7px; background: var(--panel); color: var(--ink); }
+.note-row-wrap { display: flex; align-items: stretch; border-left: 2px solid transparent; margin-bottom: 4px; }
+.note-row-wrap.selected { border-left-color: var(--accent); background: var(--accent-soft); }
+.note-row-wrap .note-row { flex: 1; margin-bottom: 0; }
+.pin-button { width: 36px; color: var(--accent); background: transparent; font-size: 18px; }
+.format-toolbar { display: flex; gap: 6px; margin-top: 18px; }
+.format-toolbar button { padding: 6px 9px; color: var(--ink); background: var(--accent-soft); font-size: 12px; }
+.markdown-editor { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; min-height: 360px; }
+.markdown-preview { overflow: auto; padding: 28px 0; color: var(--ink); line-height: 1.7; }
+.markdown-preview p { margin: 0 0 12px; }
+.markdown-preview h2, .markdown-preview h3 { color: var(--ink-strong); margin: 0 0 12px; }
+.markdown-preview code { padding: 2px 4px; background: var(--accent-soft); font: 12px Mono, monospace; }
+.comments { border-top: 1px solid var(--line); padding-top: 18px; }
+.comments h3 { margin: 0 0 12px; font-weight: 500; }
+.comment { display: grid; gap: 4px; padding: 10px 12px; margin: 5px 0; background: var(--accent-soft); color: var(--ink); }
+.comment strong { color: var(--ink-strong); font-size: 12px; }
+.comment-compose { display: flex; gap: 8px; margin-top: 12px; }
+.comment-compose input { min-width: 0; flex: 1; padding: 10px; border: 1px solid var(--line); background: var(--panel); color: var(--ink-strong); }
+.comment-compose button { padding: 10px 14px; }
+.member-row, .admin-user, .audit-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 10px; color: var(--ink); font-size: 12px; }
+.member-row { border-top: 1px solid var(--line); }
+.member-row .quiet { padding: 2px; font-size: 11px; }
+.admin-user, .audit-row { border-top: 1px solid var(--line); padding: 12px 0; }
+.admin-user select { padding: 6px; border: 1px solid var(--line); background: var(--panel); color: var(--ink-strong); }
+.audit-row { display: grid; justify-content: initial; }
+.audit-row span { color: var(--ink); font: 11px Mono, monospace; }
 @media (max-width: 800px) { .settings-layout { grid-template-columns: 1fr; } .settings-sidebar { border-right: 0; border-bottom: 1px solid var(--line); padding: 17px 18px; } .settings-sidebar .section-label { margin: 24px 10px 12px; } .settings-nav { display: flex; overflow: auto; } .settings-content { padding: 28px 18px; } }
+@media (max-width: 900px) { .markdown-editor { grid-template-columns: 1fr; } .markdown-preview { min-height: 140px; border-top: 1px solid var(--line); } }

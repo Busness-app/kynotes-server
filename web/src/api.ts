@@ -1,6 +1,8 @@
 export type User = { id: string; role: string };
 export type Session = { user: User; expiresAt: string; hardExpiresAt: string };
-export type Container = { id: string; kind: string; metaCiphertext: string; metaVersion: number; changeSeq: number };
+export type Container = { id: string; kind: string; metaCiphertext: string; metaVersion: number; changeSeq: number; keyGeneration: number };
+export type Comment = { id: string; authorUserId: string; username: string; bodyCiphertext: string; keyGeneration: number; createdAt: string };
+export type AdminUser = { id: string; username: string; role: string; status: string; quotaBytes: number; createdAt: string };
 export type Change = { id: string; kind: string; changeSeq: number; deleted: boolean };
 export type Note = { id: string; title: string; body: string; version: number; updatedAt: string };
 
@@ -39,6 +41,7 @@ export async function login(username: string, authSecret: string) {
 }
 
 export const session = () => request<Session>("/api/v1/auth/session");
+export const serverTheme = () => request<{ defaultTheme: string }>("/api/v1/theme");
 export const logout = () => request<void>("/api/v1/auth/logout", { method: "POST" });
 export const containers = () => request<Container[]>("/api/v1/containers");
 
@@ -58,6 +61,16 @@ export async function serviceStatus() {
   const [health, ready] = await Promise.all([fetch("/healthz"), fetch("/readyz")]);
   return { health: health.ok, ready: ready.ok };
 }
+export const adminUsers = () => request<AdminUser[]>("/api/v1/admin/users");
+export const adminAudit = () => request<Array<Record<string, string>>("/api/v1/admin/audit");
+export const adminSettings = () => request<{ defaultTheme: string }>("/api/v1/admin/settings");
+export function updateAdminSettings(defaultTheme: string) { return request<void>("/api/v1/admin/settings", { method: "PATCH", body: JSON.stringify({ defaultTheme }) }); }
+export function updateAdminUser(user: AdminUser) { return request<void>(`/api/v1/admin/users/${encodeURIComponent(user.id)}`, { method: "PATCH", body: JSON.stringify(user) }); }
+export const members = (containerID: string) => request<Array<{ userId: string; username: string; role: string }>>(`/api/v1/containers/${encodeURIComponent(containerID)}/members`);
+export function inviteMember(containerID: string, inviteeID: string, role: string) { return request<{ id: string; token: string }>(`/api/v1/containers/${encodeURIComponent(containerID)}/invitations`, { method: "POST", body: JSON.stringify({ inviteeId: inviteeID, role }) }); }
+export function removeMember(containerID: string, userID: string) { return request<void>(`/api/v1/containers/${encodeURIComponent(containerID)}/members/${encodeURIComponent(userID)}`, { method: "DELETE" }); }
+export const comments = (objectID: string) => request<Comment[]>(`/api/v1/objects/${encodeURIComponent(objectID)}/comments`);
+export function createComment(objectID: string, bodyCiphertext: string, keyGeneration: number) { return request<{ id: string }>(`/api/v1/objects/${encodeURIComponent(objectID)}/comments`, { method: "POST", body: JSON.stringify({ bodyCiphertext, keyGeneration, mentions: [] }) }); }
 
 export async function changes(containerID: string, since = 0) {
   return request<{ changes: Change[]; nextCursor: string; hasMore: boolean }>(

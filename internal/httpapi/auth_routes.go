@@ -25,6 +25,13 @@ func dummyVerifier() string {
 }
 
 func AuthRoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config) {
+	mux.HandleFunc("GET /api/v1/theme", func(w http.ResponseWriter, r *http.Request) {
+		var theme string
+		if db.QueryRow(`SELECT value FROM server_settings WHERE key='default_theme'`).Scan(&theme) != nil {
+			theme = "Patina Ky"
+		}
+		writeJSON(w, map[string]string{"defaultTheme": theme})
+	})
 	mux.HandleFunc("POST /api/v1/auth/login-params", func(w http.ResponseWriter, r *http.Request) {
 		var in struct {
 			Username string `json:"username"`

@@ -53,6 +53,11 @@ export async function decryptContainerMeta(authSecret: string, containerID: stri
   return { name: result.name };
 }
 
+export const encryptComment = (authSecret: string, containerID: string, body: string) => encryptWithInfo(authSecret, containerID, "kynotes/comment/v1", { body });
+export async function decryptComment(authSecret: string, containerID: string, bytes: Uint8Array): Promise<{ body: string }> { return decryptWithInfo(authSecret, containerID, "kynotes/comment/v1", bytes) as Promise<{ body: string }>; }
+async function encryptWithInfo(authSecret: string, containerID: string, info: string, value: unknown): Promise<Uint8Array> { const iv = crypto.getRandomValues(new Uint8Array(12)); const key = await derivedKey(authSecret, containerID, info); const ciphertext = await crypto.subtle.encrypt({ name: "AES-GCM", iv: buffer(iv) }, key, buffer(encoder.encode(JSON.stringify(value)))); const result = new Uint8Array(iv.byteLength + ciphertext.byteLength); result.set(iv); result.set(new Uint8Array(ciphertext), iv.byteLength); return result; }
+async function decryptWithInfo(authSecret: string, containerID: string, info: string, bytes: Uint8Array): Promise<unknown> { if (bytes.byteLength < 13) throw new Error("Encrypted comment is too short"); const key = await derivedKey(authSecret, containerID, info); const plaintext = await crypto.subtle.decrypt({ name: "AES-GCM", iv: buffer(bytes.slice(0, 12)) }, key, buffer(bytes.slice(12))); return JSON.parse(decoder.decode(plaintext)); }
+
 export async function deriveAuthSecret(password: string, salt: string, iterations: number): Promise<string> {
   const rawSalt = fromBase64(salt);
   const passwordKey = await crypto.subtle.importKey("raw", buffer(encoder.encode(password)), "PBKDF2", false, ["deriveBits"]);

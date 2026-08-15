@@ -14,6 +14,31 @@ import (
 )
 
 func CollabRoutes(mux *http.ServeMux, db *sql.DB) {
+	mux.Handle("GET /api/v1/containers/{id}/members", auth.RequireSession(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		s, _ := auth.SessionFromContext(r)
+		cid := r.PathValue("id")
+		var role string
+		if db.QueryRow(`SELECT role FROM memberships WHERE container_id=? AND user_id=? AND revoked_at=''`, cid, s.UserID).Scan(&role) != nil {
+			WriteError(w, r, 404, "not_found", "not found")
+			return
+		}
+		rows, err := db.Query(`SELECT m.user_id,u.username,m.role FROM memberships m JOIN users u ON u.id=m.user_id WHERE m.container_id=? AND m.revoked_at='' ORDER BY u.username`, cid)
+		if err != nil {
+			WriteError(w, r, 500, "internal", "internal server error")
+			return
+		}
+		defer rows.Close()
+		out := []map[string]string{}
+		for rows.Next() {
+			var id, username, memberRole string
+			if rows.Scan(&id, &username, &memberRole) != nil {
+				WriteError(w, r, 500, "internal", "internal server error")
+				return
+			}
+			out = append(out, map[string]string{"userId": id, "username": username, "role": memberRole})
+		}
+		writeJSON(w, out)
+	})))
 	mux.Handle("DELETE /api/v1/containers/{id}/members/{userID}", auth.RequireSession(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if auth.CheckCSRF(r) != nil {
 			WriteError(w, r, 403, "csrf_failed", "csrf validation failed")
@@ -221,5 +246,27 @@ func CollabRoutes(mux *http.ServeMux, db *sql.DB) {
 			return
 		}
 		writeJSON(w, map[string]string{"id": id})
+	})))
+	mux.Handle("GET /api/v1/objects/{id}/comments", auth.RequireSession(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		s, _ := auth.SessionFromContext(r)
+		oid := r.PathValue("id")
+		rows, err := db.Query(`SELECT c.id,c.author_user_id,u.username,c.body_ciphertext,c.key_generation,c.created_at FROM comments c JOIN users u ON u.id=c.author_user_id JOIN memberships m ON m.container_id=c.container_id AND m.user_id=? AND m.revoked_at='' WHERE c.object_id=? AND c.deleted_at='' ORDER BY c.created_at`, s.UserID, oid)
+		if err != nil {
+			WriteError(w, r, 404, "not_found", "not found")
+			return
+		}
+		defer rows.Close()
+		out := []map[string]any{}
+		for rows.Next() {
+			var id, author, username, created string
+			var body []byte
+			var generation int
+			if rows.Scan(&id, &author, &username, &body, &generation, &created) != nil {
+				WriteError(w, r, 500, "internal", "internal server error")
+				return
+			}
+			out = append(out, map[string]any{"id": id, "authorUserId": author, "username": username, "bodyCiphertext": base64.StdEncoding.EncodeToString(body), "keyGeneration": generation, "createdAt": created})
+		}
+		writeJSON(w, out)
 	})))
 }

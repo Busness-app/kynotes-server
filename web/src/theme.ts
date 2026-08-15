@@ -22,5 +22,6 @@ const palette: Record<ThemeName, Theme> = {
 };
 
 export function getStoredTheme(): ThemeName { try { const value = localStorage.getItem(THEME_STORAGE_KEY); return THEME_OPTIONS.includes(value as ThemeName) ? value as ThemeName : "Patina Ky"; } catch { return "Patina Ky"; } }
+export function hasStoredTheme() { try { return localStorage.getItem(THEME_STORAGE_KEY) !== null; } catch { return false; } }
 export function applyTheme(name: ThemeName) { const theme = palette[name]; for (const [key, value] of Object.entries(theme)) document.documentElement.style.setProperty(`--${key.replace(/[A-Z]/g, (m) => `-${m.toLowerCase()}`)}`, value); try { localStorage.setItem(THEME_STORAGE_KEY, name); } catch { /* browser storage is optional */ } }
 export function applyStoredTheme() { applyTheme(getStoredTheme()); }
