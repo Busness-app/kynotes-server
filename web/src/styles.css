@@ -36,6 +36,12 @@ form button, .editor-actions button, .empty-editor button { background: #25251f;
 .account-chip { display: flex; align-items: center; gap: 9px; padding: 12px 8px 4px; font-size: 13px; }
 .avatar { display: grid; place-items: center; width: 25px; height: 25px; border-radius: 50%; background: #dfc88e; font: 10px Mono, monospace; }
 .list-header { display: flex; justify-content: space-between; align-items: end; padding: 0 2px 20px; }
+.note-list .list-header { display: block; padding: 4px 4px 22px; border-bottom: 1px solid var(--line); }
+.note-list .list-header .section-label { display: block; margin-bottom: 8px; color: var(--accent); }
+.note-list .list-header h2.workspace-title { display: block; color: var(--ink-strong); font-size: clamp(28px, 4vw, 38px); line-height: 1; }
+.workspace-kind { margin-top: 8px; color: var(--ink); font: 11px Mono, monospace; letter-spacing: .04em; }
+.notes-heading { margin: 20px 0 0; color: var(--accent); font: 12px Mono, monospace; letter-spacing: .12em; text-transform: uppercase; }
+.note-list .list-header .list-actions { margin-top: 18px; justify-content: flex-start; }
 h2 { font-size: 23px; font-weight: 500; letter-spacing: -.05em; margin: 8px 0 0; }
 .icon-button { width: 31px; height: 31px; background: #eee5d4; color: #736348; font-size: 18px; }
 .note-row { display: grid; gap: 5px; width: 100%; padding: 14px 12px; margin-bottom: 4px; background: transparent; color: #777267; text-align: left; border-left: 2px solid transparent; }
@@ -104,6 +110,7 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 .avatar { background: var(--accent-soft); color: var(--ink-strong); }
 .body-input { color: var(--ink); }
 .team-label { margin-top: 26px; }
+.personal-create { margin: 18px 10px 4px; padding: 10px 12px; color: var(--button-text); background: var(--accent); text-align: left; font-size: 13px; }
 .list-actions { display: flex; align-items: center; gap: 8px; }
 .list-actions select { border: 1px solid var(--line); padding: 7px; background: var(--panel); color: var(--ink); }
 .note-row-wrap { display: flex; align-items: stretch; border-left: 2px solid transparent; margin-bottom: 4px; }
@@ -170,3 +177,10 @@ button, input, textarea, select { border-radius: 12px; corner-shape: squircle; }
 @media (max-width: 800px) { .note-search { width: 100%; } .list-actions { flex-wrap: wrap; } }
 .editor-actions .danger.quiet { color: #b42318; background: transparent; border: 1px solid transparent; }
 .editor-actions .danger.quiet:hover, .editor-actions .danger.quiet:focus-visible { color: #9b1c12; background: color-mix(in srgb, #b42318 12%, var(--panel)); border-color: color-mix(in srgb, #b42318 30%, var(--line)); }
+.admin-settings-layout .settings-nav { display: flex; gap: 6px; overflow-x: auto; margin: 18px 0 4px; padding: 5px; border: 1px solid var(--line); border-radius: 14px; background: var(--sidebar-end); corner-shape: squircle; }
+.admin-settings-layout .settings-nav a { flex: 0 0 auto; padding: 10px 14px; border-radius: 10px; color: var(--ink); font: 12px Mono, monospace; }
+.admin-settings-layout .settings-nav a:hover, .admin-settings-layout .settings-nav a:focus-visible, .admin-settings-layout .settings-nav a:active { color: var(--ink-strong); background: var(--panel); }
+.admin-settings-layout .settings-content:has(#server:target) > #users, .admin-settings-layout .settings-content:has(#server:target) > #teams, .admin-settings-layout .settings-content:has(#server:target) > #audit,
+.admin-settings-layout .settings-content:has(#users:target) > #server, .admin-settings-layout .settings-content:has(#users:target) > #teams, .admin-settings-layout .settings-content:has(#users:target) > #audit,
+.admin-settings-layout .settings-content:has(#teams:target) > #server, .admin-settings-layout .settings-content:has(#teams:target) > #users, .admin-settings-layout .settings-content:has(#teams:target) > #audit,
+.admin-settings-layout .settings-content:has(#audit:target) > #server, .admin-settings-layout .settings-content:has(#audit:target) > #users, .admin-settings-layout .settings-content:has(#audit:target) > #teams { display: none; }

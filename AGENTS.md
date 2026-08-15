@@ -69,7 +69,9 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   CSRF headers on mutations, and run its `npm test` plus `npm run build` checks.
 - `web/` also contains the encrypted local save queue, client-only search,
   contextual resurfacing, graph projections, single-pane Markdown/WYSIWYG
-  editing, and encrypted section anchors for comments.
+  editing, and encrypted section anchors for comments. The workspace surface
+  labels personal workbooks explicitly, and the admin surface uses tabbed
+  server, users, teams, and audit sections.
 - `internal/httpapi` commit receipts are deterministic SHA-256 commitments over
   opaque object/version metadata and ciphertext digest; share links store only
   token hashes and serve ciphertext without the URL-fragment decryption key.
