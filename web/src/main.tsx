@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
   addAdminTeamMember,
@@ -284,6 +284,11 @@ function Workspace({
   const [commitReceipt, setCommitReceipt] = useState("");
   const [conflicted, setConflicted] = useState<Set<string>>(new Set());
   const [lastSavedAt, setLastSavedAt] = useState("");
+  const [syncStatus, setSyncStatus] = useState<"saved" | "local" | "syncing" | "attention">("saved");
+  const draining = useRef(false);
+  const syncChannel = useRef<BroadcastChannel | null>(null);
+  const selectedNoteRef = useRef<Note | null>(null);
+  selectedNoteRef.current = selectedNote;
   const [presenceForContainer, setPresenceForContainer] = useState<
     Array<{ userId: string; state: string }>
   >([]);
@@ -338,25 +343,20 @@ function Workspace({
     void loadContainers();
   }, []);
   useEffect(() => {
-    if (!selected) return;
-    const queued = pendingSaves().filter(
-      (note) => note.containerID === selected.id,
-    );
-    if (!queued.length) return;
-    void Promise.all(
-      queued.map(async (note) => {
-        try {
-          const result = await saveObject(note.id, note.payload, note.version);
-          clearQueuedSave(note.id);
-          return result;
-        } catch {
-          return undefined;
-        }
-      }),
-    ).then(() => {
-      if (queued.length) setError("Queued encrypted changes were retried.");
-    });
-  }, [selected?.id]);
+    const channel = typeof BroadcastChannel === "undefined" ? null : new BroadcastChannel("kynotes-sync");
+    syncChannel.current = channel;
+    channel?.addEventListener("message", () => void drainQueue());
+    const retry = () => void drainQueue();
+    window.addEventListener("online", retry);
+    void drainQueue();
+    const timer = window.setInterval(retry, 15000);
+    return () => {
+      window.removeEventListener("online", retry);
+      window.clearInterval(timer);
+      channel?.close();
+      syncChannel.current = null;
+    };
+  }, []);
   useEffect(() => {
     if (commitReceipt) setError(`Server commit receipt: ${commitReceipt}`);
   }, [commitReceipt]);
@@ -681,11 +681,13 @@ function Workspace({
           note.version,
           selected.keyGeneration,
         );
-        clearQueuedSave(note.id);
+        await clearQueuedSave(note.id);
         setCommitReceipt(result.commitReceipt ?? "");
-        setConflicted((value) => { const next = new Set(value); next.delete(note.id); return next; });
+          setConflicted((value) => { const next = new Set(value); next.delete(note.id); return next; });
+          setSyncStatus("saved");
         const saved = { ...note, version: result.version, updatedAt: savedAt };
         setLastSavedAt(savedAt);
+        setSyncStatus("saved");
         setNotes((value) =>
           value.map((entry) => (entry.id === saved.id ? saved : entry)),
         );
@@ -694,9 +696,12 @@ function Workspace({
       } catch (error) {
         if (error instanceof APIRequestError && error.code === "version_conflict") {
           setConflicted((value) => new Set(value).add(note.id));
+          setSyncStatus("attention");
           setError("This note changed on another device. Your encrypted draft is preserved locally; review the conflict before saving again.");
         } else {
-          queueSave({ id: note.id, containerID: selected.id, version: note.version, payload: encrypted, updatedAt: savedAt });
+          await queueSave({ id: note.id, containerID: selected.id, version: note.version, payload: encrypted, updatedAt: savedAt, keyGeneration: selected.keyGeneration });
+          syncChannel.current?.postMessage({ type: "queued", id: note.id });
+          setSyncStatus("local");
           setError("Saved locally; encrypted change queued for the server.");
         }
       }
@@ -704,6 +709,43 @@ function Workspace({
       setError(error instanceof Error ? error.message : "Unable to save note");
     } finally {
       if (!automatic) setBusy(false);
+    }
+  }
+
+  async function drainQueue() {
+    if (draining.current) return;
+    draining.current = true;
+    try {
+      const queued = await pendingSaves();
+      if (!queued.length) return;
+      setSyncStatus("syncing");
+      let remaining = false;
+      let attention = false;
+      for (const item of queued) {
+        try {
+          const result = await saveObject(item.id, item.payload, item.version, item.keyGeneration ?? 1);
+          await clearQueuedSave(item.id);
+          setNotes((value) => value.map((note) => note.id === item.id ? { ...note, version: result.version, updatedAt: item.updatedAt } : note));
+          if (selectedNoteRef.current?.id === item.id) {
+            setSelectedNote((note) => note?.id === item.id ? { ...note, version: result.version, updatedAt: item.updatedAt } : note);
+            setLastSavedAt(item.updatedAt);
+            setDirty(false);
+          }
+        } catch (error) {
+          if (error instanceof APIRequestError && error.code === "version_conflict") {
+            await clearQueuedSave(item.id);
+            setConflicted((value) => new Set(value).add(item.id));
+            attention = true;
+          } else {
+            remaining = true;
+          }
+        }
+      }
+      setSyncStatus(attention ? "attention" : remaining ? "local" : "saved");
+    } catch {
+      setSyncStatus("local");
+    } finally {
+      draining.current = false;
     }
   }
   async function remove(note: Note) {
@@ -835,8 +877,8 @@ function Workspace({
           <span>KyNotes</span>
         </div>
         <div className="top-actions">
-          <span className="sync-dot">
-            ● {dirty ? "Unsaved changes" : "Saved"}
+          <span className={`sync-dot sync-${syncStatus}`}>
+            ● {dirty ? "Unsaved changes" : syncStatus === "syncing" ? "Syncing…" : syncStatus === "local" ? "Saved locally" : syncStatus === "attention" ? "Needs attention" : "Saved to server"}
           </span>
           {selectedNote && (
             <button
@@ -1038,9 +1080,13 @@ function Workspace({
               <span className="encrypted">
                 {dirty
                   ? "Autosaving…"
-                  : lastSavedAt
-                    ? `Saved on server ${new Date(lastSavedAt).toLocaleTimeString()}`
-                    : "Encrypted locally"}
+                  : syncStatus === "local"
+                    ? "Encrypted locally · waiting to sync"
+                    : syncStatus === "attention"
+                      ? "Conflict needs attention"
+                      : lastSavedAt
+                        ? `Saved on server ${new Date(lastSavedAt).toLocaleTimeString()}`
+                        : "Encrypted locally"}
               </span>
             </div>
             {selectedNote ? (

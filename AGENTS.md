@@ -71,7 +71,9 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   contextual resurfacing, graph projections, single-pane Markdown/WYSIWYG
   editing, and encrypted section anchors for comments. The workspace surface
   labels personal workbooks explicitly, and the admin surface uses tabbed
-  server, users, teams, and audit sections.
+  server, users, teams, and audit sections. The save queue is kept in the
+  existing IndexedDB vault, drains on startup/online recovery and every 15
+  seconds, and uses a ciphertext-only BroadcastChannel hint for other tabs.
 - `web/` treats a restored HTTP session as locked until the user unlocks the
   browser again; note creation also attempts its first server save immediately
   before relying on autosave or the encrypted retry queue.
