@@ -75,8 +75,8 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 .settings-sidebar { padding: 28px 18px; border-right: 1px solid var(--line); background: linear-gradient(150deg, var(--sidebar-start), var(--sidebar-end)); }
 .settings-sidebar .section-label { margin: 36px 10px 12px; }
 .settings-nav { display: grid; gap: 4px; }
-.settings-nav span { padding: 11px 10px; color: var(--ink); border-radius: 4px; }
-.settings-nav .selected { color: var(--ink-strong); background: var(--accent-soft); }
+.settings-nav a { display: block; padding: 11px 10px; color: var(--ink); border-radius: 4px; text-decoration: none; }
+.settings-nav a:hover, .settings-nav a:focus-visible { color: var(--ink-strong); background: var(--accent-soft); }
 .settings-content { width: 100%; padding: 48px clamp(22px, 6vw, 80px); }
 .settings-header h1 { font-size: clamp(36px, 6vw, 58px); margin: 16px 0 10px; }
 .settings-header p { color: var(--ink); margin: 0 0 30px; }
@@ -126,3 +126,13 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 .audit-row span { color: var(--ink); font: 11px Mono, monospace; }
 @media (max-width: 800px) { .settings-layout { grid-template-columns: 1fr; } .settings-sidebar { border-right: 0; border-bottom: 1px solid var(--line); padding: 17px 18px; } .settings-sidebar .section-label { margin: 24px 10px 12px; } .settings-nav { display: flex; overflow: auto; } .settings-content { padding: 28px 18px; } }
 @media (max-width: 900px) { .markdown-editor { grid-template-columns: 1fr; } .markdown-preview { min-height: 140px; border-top: 1px solid var(--line); } }
+.admin-settings-layout .settings-content { max-width: 1040px; padding-top: 34px; }
+.admin-settings-layout .settings-header { padding-bottom: 12px; border-bottom: 1px solid var(--line); }
+.admin-settings-layout .settings-header h1 { font-size: clamp(32px, 5vw, 48px); letter-spacing: -.05em; }
+.admin-settings-layout .config-card { margin: 14px 0; box-shadow: none; border-radius: 6px; }
+.admin-settings-layout .config-card h2 { font-size: 19px; letter-spacing: -.03em; }
+.admin-settings-layout .admin-user { grid-template-columns: minmax(120px, 1fr) 120px 120px auto; display: grid; align-items: center; }
+.admin-settings-layout .admin-create { display: grid; grid-template-columns: 1fr 1fr 110px auto; gap: 8px; align-items: end; padding: 16px 0; margin-bottom: 8px; border-bottom: 1px solid var(--line); }
+.admin-settings-layout .admin-create h3 { grid-column: 1 / -1; margin: 0; font-size: 14px; }
+.admin-settings-layout .admin-create input, .admin-settings-layout .admin-create select { min-width: 0; padding: 9px; border: 1px solid var(--line); background: var(--bg); color: var(--ink-strong); }
+@media (max-width: 800px) { .settings-nav a { display: inline-block; white-space: nowrap; } .admin-settings-layout .admin-create, .admin-settings-layout .admin-user { grid-template-columns: 1fr; } }
