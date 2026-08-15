@@ -88,9 +88,11 @@ import {
   type ThemeName,
 } from "./theme";
 import { contextualNotes, graphEdges, searchNotes } from "./knowledge";
+import { documentText, emptyNoteDocument, parseNoteDocument, stringifyNoteDocument } from "./document";
+import type { EditorActions } from "./TiptapEditor";
 import "./styles.css";
 
-const MarkdownEditor = lazy(() => import("./MarkdownEditor").then((module) => ({ default: module.MarkdownEditor })));
+const TiptapEditor = lazy(() => import("./TiptapEditor").then((module) => ({ default: module.TiptapEditor })));
 
 type AuthState = {
   username: string;
@@ -178,7 +180,7 @@ function SharedNote() {
       <article className="shared-note">
         <div className="eyebrow">ENCRYPTED KYNOTES LINK</div>
         <h1>{state.note.title}</h1>
-        <div className="shared-note-body">{markdown(state.note.body)}</div>
+        <div className="shared-note-body">{documentText(state.note.body)}</div>
       </article>
     </main>
   );
@@ -252,38 +254,6 @@ function Login({ onLogin }: { onLogin: (auth: AuthState) => void }) {
   );
 }
 
-function markdown(text: string): React.ReactNode[] {
-  return text.split("\n").map((line, index) => {
-    const source =
-      line.startsWith("## ") || line.startsWith("# ") || line.startsWith("- ")
-        ? line.replace(/^#{1,2} |^- /, "")
-        : line;
-    const inline = source
-      .split(/(\*\*.*?\*\*|`.*?`|\*.*?\*)/g)
-      .map((part, partIndex) =>
-        part.startsWith("**") ? (
-          <strong key={partIndex}>{part.slice(2, -2)}</strong>
-        ) : part.startsWith("*") ? (
-          <em key={partIndex}>{part.slice(1, -1)}</em>
-        ) : part.startsWith("`") ? (
-          <code key={partIndex}>{part.slice(1, -1)}</code>
-        ) : (
-          part
-        ),
-      );
-    const body = line.startsWith("## ") ? (
-      <h3 key={index}>{inline}</h3>
-    ) : line.startsWith("# ") ? (
-      <h2 key={index}>{inline}</h2>
-    ) : line.startsWith("- ") ? (
-      <li key={index}>{inline}</li>
-    ) : (
-      <p key={index}>{inline}</p>
-    );
-    return body;
-  });
-}
-
 function Workspace({
   auth,
   onLogout,
@@ -327,13 +297,8 @@ function Workspace({
   );
   const [sort, setSort] = useState<"updated" | "title">("updated");
   const [query, setQuery] = useState("");
-  const [editorMode, setEditorMode] = useState<"markdown" | "wysiwyg">(
-    "markdown",
-  );
   const imageInput = useRef<HTMLInputElement>(null);
-  const markdownInput = useRef<HTMLTextAreaElement>(null);
-  const insertEditorText = useRef<(value: string) => void>(() => {});
-  const insertEditorImage = useRef<(source: string, alt: string) => void>(() => {});
+  const editorActions = useRef<EditorActions | null>(null);
   const pinsKey = `kynotes-pins-${auth.user.id}`;
   const pinned = useMemo(() => {
     try {
@@ -356,6 +321,10 @@ function Workspace({
           : b.updatedAt.localeCompare(a.updatedAt);
       }),
     [notes, pinned, sort],
+  );
+  const searchableNotes = useMemo(
+    () => notes.map((note) => ({ ...note, body: documentText(note.body) })),
+    [notes],
   );
   useEffect(() => {
     let cancelled = false;
@@ -385,14 +354,14 @@ function Workspace({
     };
   }, [attachmentsForNote, auth.authSecret, selected?.id]);
   const visibleNotes = useMemo(
-    () => searchNotes(orderedNotes, query),
-    [orderedNotes, query],
+    () => searchNotes(searchableNotes, query),
+    [searchableNotes, query],
   );
   const relatedNotes = useMemo(
-    () => contextualNotes(notes, selectedNote ?? undefined),
-    [notes, selectedNote],
+    () => contextualNotes(searchableNotes, selectedNote ? { ...selectedNote, body: documentText(selectedNote.body) } : undefined),
+    [searchableNotes, selectedNote],
   );
-  const links = useMemo(() => graphEdges(notes), [notes]);
+  const links = useMemo(() => graphEdges(searchableNotes), [searchableNotes]);
   useEffect(() => {
     void loadContainers();
   }, []);
@@ -731,7 +700,7 @@ function Workspace({
       const note = {
         id: object.id,
         title: "Untitled note",
-        body: "# Untitled note\n\n",
+        body: stringifyNoteDocument(emptyNoteDocument().document),
         version: 0,
         updatedAt: new Date().toISOString(),
       };
@@ -878,26 +847,6 @@ function Workspace({
       persistDraft(next);
     }
   }
-  function insertMarkdown(value: string) {
-    if (!selectedNote) return;
-    if (editorMode === "wysiwyg") {
-      insertEditorText.current(value);
-      return;
-    }
-    const input = markdownInput.current;
-    if (!input) {
-      editBody(`${selectedNote.body}${selectedNote.body.endsWith("\n") ? "" : "\n"}${value}\n`);
-      return;
-    }
-    const start = input.selectionStart;
-    const end = input.selectionEnd;
-    const next = `${selectedNote.body.slice(0, start)}${value}${selectedNote.body.slice(end)}`;
-    editBody(next);
-    requestAnimationFrame(() => {
-      input.focus();
-      input.setSelectionRange(start + value.length, start + value.length);
-    });
-  }
   async function uploadPending(job: Awaited<ReturnType<typeof pendingUploads>>[number]) {
     const status = await uploadStatus(job.uploadId);
     let nextChunk = status.nextChunk;
@@ -972,14 +921,17 @@ function Workspace({
   }
   async function addInlineImage(file: File) {
     if (!selectedNote || !file.type.startsWith("image/")) return;
+    if (!editorActions.current) {
+      setError("The editor is still loading. Try again in a moment.");
+      return;
+    }
     setBusy(true);
     try {
       const attachment = await uploadAttachment(file);
       const filename = file.name.replace(/[\[\]()\r\n]/g, "").trim() || "image";
       setAttachmentsForNote((value) => [...value, attachment]);
       const source = `attachment://${attachment.id}`;
-      if (editorMode === "wysiwyg") insertEditorImage.current(source, filename);
-      else insertMarkdown(`![${filename}](${source})`);
+      editorActions.current?.insertImage(source, filename);
       setError("Inline image added and encrypted as an attachment.");
     } catch (error) {
       setError(error instanceof Error ? error.message : "Unable to add inline image");
@@ -1252,7 +1204,7 @@ function Workspace({
                 >
                   <strong>{note.title || "Untitled note"}</strong>
                   <span>
-                    {note.body.replace(/^#+\s*/gm, "").slice(0, 64) ||
+                    {documentText(note.body).slice(0, 64) ||
                       "Empty note"}
                   </span>
                 </button>
@@ -1332,47 +1284,24 @@ function Workspace({
                   }}
                 />
                 <div className="format-toolbar">
-                  <button
-                    className={editorMode === "markdown" ? "active" : ""}
-                    onClick={() => setEditorMode("markdown")}
-                  >
-                    Markdown
-                  </button>
-                  <button
-                    className={editorMode === "wysiwyg" ? "active" : ""}
-                    onClick={() => setEditorMode("wysiwyg")}
-                  >
-                    WYSIWYG
-                  </button>
-                  <button onClick={() => insertMarkdown("**bold text**")}>Bold</button>
-                  <button onClick={() => insertMarkdown("*italic text*")}>Italic</button>
-                  <button onClick={() => insertMarkdown("## Heading")}>Heading</button>
-                  <button onClick={() => insertMarkdown("- list item")}>List</button>
-                  <button onClick={() => insertMarkdown("`code`")}>Code</button>
+                  <button onClick={() => editorActions.current?.toggleBold()}>Bold</button>
+                  <button onClick={() => editorActions.current?.toggleItalic()}>Italic</button>
+                  <button onClick={() => editorActions.current?.toggleHeading()}>Heading</button>
+                  <button onClick={() => editorActions.current?.toggleList()}>List</button>
+                  <button onClick={() => editorActions.current?.toggleCode()}>Code</button>
                   <button onClick={() => imageInput.current?.click()}>Image</button>
                   <input ref={imageInput} className="visually-hidden" type="file" accept="image/*" onChange={(event) => { const file = event.target.files?.[0]; if (file) addInlineImage(file); event.currentTarget.value = ""; }} />
                 </div>
                 <div className="single-pane-editor">
-                  {editorMode === "markdown" ? (
-                    <textarea
-                      ref={markdownInput}
-                      className="body-input"
-                      value={selectedNote.body}
-                      onChange={(event) => editBody(event.target.value)}
-                      placeholder="Write Markdown…"
+                  <Suspense fallback={<div className="tiptap-editor editor-loading">Loading editor…</div>}>
+                    <TiptapEditor
+                      key={selectedNote.id}
+                      value={parseNoteDocument(selectedNote.body).document}
+                      onChange={(document) => editBody(stringifyNoteDocument(document))}
+                      imageSources={attachmentSources}
+                      onReady={(actions) => { editorActions.current = actions; }}
                     />
-                  ) : (
-                    <Suspense fallback={<div className="milkdown-editor editor-loading">Loading editor…</div>}>
-                      <MarkdownEditor
-                        key={`${selectedNote.id}-${editorMode}`}
-                        value={selectedNote.body}
-                        onChange={editBody}
-                        imageSources={attachmentSources}
-                        onReady={(insert) => { insertEditorText.current = insert; }}
-                        onImageReady={(insert) => { insertEditorImage.current = insert; }}
-                      />
-                    </Suspense>
-                  )}
+                  </Suspense>
                 </div>
                 <div className="editor-actions">
                   <button

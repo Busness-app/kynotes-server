@@ -53,14 +53,14 @@ surface exposes the persisted default theme and metadata-only administration;
 other host-level configuration remains host-managed.
 
 The current client additionally groups personal and team workspaces, supports
-local sorting and pinning, edits Markdown with a safe preview, autosaves and
+local sorting and pinning, edits versioned Tiptap documents, autosaves and
 supports manual saves, and displays encrypted comments. Admins can set the
 server default theme, manage account role/status, and inspect metadata-only
 audit records.
 
 The next product slice adds an encrypted local retry queue, deterministic
-client-side search, contextual resurfacing, local Markdown link graph edges,
-encrypted section anchors for comments, a single-pane Markdown/WYSIWYG editor,
+client-side search, contextual resurfacing, document link graph edges,
+encrypted section anchors for comments, a single-pane Tiptap editor,
 commit receipts, and ciphertext-only share links whose decryption material is
 kept in the URL fragment. KyBackup owns backup and restore. Cross-server
 workspace migration is intentionally deferred to v2.

@@ -177,16 +177,13 @@ button, input, textarea, select { border-radius: 12px; corner-shape: squircle; }
 .context-link:hover { color: var(--ink-strong); }
 .format-toolbar button.active { color: var(--ink-strong); outline: 2px solid var(--accent); }
 .single-pane-editor { min-height: 360px; display: flex; }
-.single-pane-editor .body-input, .milkdown-editor { width: 100%; }
-.milkdown-editor { min-height: 360px; overflow: auto; color: var(--ink); }
-.milkdown-editor .milkdown { min-height: 360px; background: transparent; }
-.milkdown-editor .milkdown .editor { max-width: none; }
-.milkdown-editor .milkdown .editor, .milkdown-editor .milkdown .ProseMirror { font-family: Space, system-ui, sans-serif; }
-.milkdown-editor .milkdown .ProseMirror { min-height: 360px; padding: 28px 0; color: var(--ink); outline: none; line-height: 1.8; }
-.milkdown-editor .milkdown .ProseMirror h1, .milkdown-editor .milkdown .ProseMirror h2, .milkdown-editor .milkdown .ProseMirror h3 { color: var(--ink-strong); line-height: 1.15; }
-.milkdown-editor .milkdown .ProseMirror blockquote { margin-left: 0; padding-left: 16px; border-left: 3px solid var(--accent); color: var(--ink); }
-.milkdown-editor .milkdown .ProseMirror pre { padding: 14px; overflow: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; }
-.milkdown-editor .milkdown .ProseMirror code { font-family: Mono, monospace; }
+.tiptap-editor { width: 100%; min-height: 360px; overflow: auto; color: var(--ink); }
+.tiptap-editor .tiptap-content { min-height: 360px; padding: 28px 0; color: var(--ink); outline: none; line-height: 1.8; }
+.tiptap-editor .tiptap-content h1, .tiptap-editor .tiptap-content h2, .tiptap-editor .tiptap-content h3 { color: var(--ink-strong); line-height: 1.15; }
+.tiptap-editor .tiptap-content blockquote { margin-left: 0; padding-left: 16px; border-left: 3px solid var(--accent); color: var(--ink); }
+.tiptap-editor .tiptap-content pre { padding: 14px; overflow: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; }
+.tiptap-editor .tiptap-content code { font-family: Mono, monospace; }
+.tiptap-editor .tiptap-content img { display: block; max-width: 100%; height: auto; margin: 16px 0; border-radius: 12px; }
 .comment-compose { flex-wrap: wrap; }
 .comment-compose input:first-child { flex: 0 1 180px; }
 .shared-note { width: min(100%, 760px); padding: 48px; color: var(--ink-strong); background: var(--panel); border: 1px solid var(--line); border-radius: 24px; corner-shape: squircle; box-shadow: 12px 12px 0 var(--accent-soft); }

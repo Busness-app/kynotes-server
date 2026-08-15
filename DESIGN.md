@@ -3,7 +3,7 @@
 ## 1. Purpose
 
 KyNotes is a self-hosted, zero-knowledge note service. It stores encrypted
-Markdown notes and encrypted attachments, synchronizes them between trusted
+structured note documents and encrypted attachments, synchronizes them between trusted
 clients, and supports small teams of fewer than 20 people.
 
 The server is a Go application distributed in a Docker container. It stores
@@ -18,7 +18,7 @@ The first release includes:
   contracts.
 - Web, Android, and iOS clients. Desktop is deferred.
 - QR/deep-link device pairing with device-wrapped keys.
-- Encrypted workbooks, folders, Markdown notes, and attachments.
+- Encrypted workbooks, folders, structured notes, and attachments.
 - Explicit sync selection for workbooks, projects, and teams.
 - Near-real-time HTTPS synchronization with offline support.
 - Personal inboxes and personal workbooks.
@@ -45,9 +45,10 @@ Each container has its own encryption key and explicit device sync selection.
 
 ### Notes and tasks
 
-Notes are Markdown documents. Task metadata is stored in YAML front matter;
-task checkboxes remain ordinary Markdown checkboxes. A client builds task views
-from the decrypted Markdown.
+Notes are versioned structured documents edited in the client. Markdown and
+HTML are import/export formats only; the encrypted note payload is a versioned
+editor document so formatting, images, and comment anchors do not depend on
+re-parsing text.
 
 The task screen provides:
 
@@ -77,7 +78,7 @@ keys.
 Encryption and decryption happen in clients. The server stores:
 
 - Encrypted container key envelopes.
-- Encrypted Markdown blobs.
+- Encrypted structured note-document blobs.
 - Encrypted attachment blobs.
 - Encrypted collaboration and audit details.
 - Non-sensitive routing metadata required for synchronization.
