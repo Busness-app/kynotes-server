@@ -1,0 +1,8 @@
+[
+  {
+    "password": "correct horse battery staple",
+    "loginSalt": "MDEyMzQ1Njc4OWFiY2RlZg==",
+    "iterations": 100000,
+    "authSecret": "b9eb85992f985b432a3feaf4f5ea0b7b7960a5da42c640a3b9d93a83fc5bef1d"
+  }
+]

@@ -1,0 +1,17 @@
+services:
+  kynotes:
+    build: .
+    restart: unless-stopped
+    read_only: true
+    volumes:
+      - kynotes-data:/data
+      - kynotes-tmp:/tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    mem_limit: 512m
+    pids_limit: 256
+volumes:
+  kynotes-data:
+  kynotes-tmp:

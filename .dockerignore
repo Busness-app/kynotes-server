@@ -1,0 +1,6 @@
+.git
+*.xcf
+*.png
+*.part
+tmp
+data

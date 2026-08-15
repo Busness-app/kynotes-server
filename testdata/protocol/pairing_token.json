@@ -1,0 +1,7 @@
+[
+  {
+    "secret": "01234567890123456789012345678901",
+    "claims": {"sub":"usr_00000000000000000000000000","exp":2000000000,"nonce":"0011223344556677","purpose":"device-pair"},
+    "token": "eyJzdWIiOiJ1c3JfMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAiLCJleHAiOjIwMDAwMDAwMDAsIm5vbmNlIjoiMDAxMTIyMzM0NDU1NjY3NyIsInB1cnBvc2UiOiJkZXZpY2UtcGFpciJ9.FwO01j8j8b_mt-o5yetLWZiU61DWqSmxbRKpOKl8L2A"
+  }
+]

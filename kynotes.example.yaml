@@ -1,0 +1,33 @@
+server:
+  bind: "0.0.0.0:8080"
+  behind_proxy: true
+  trusted_proxies: ["127.0.0.1/32"]
+  read_header_timeout: "10s"
+  read_timeout: "60s"
+  write_timeout: "120s"
+  idle_timeout: "120s"
+  shutdown_grace: "20s"
+  max_request_bytes: 1048576
+  dev_insecure_cookies: false
+data_dir: "/data"
+secrets:
+  pairing_secret: ""
+  server_salt_key: ""
+limits:
+  attachment_max_bytes: 26214400
+  chunk_bytes: 4194304
+  object_max_bytes: 10485760
+  upload_session_ttl: "15m"
+  user_quota_bytes: 1073741824
+  team_quota_bytes: 5368709120
+gc:
+  enabled: true
+  retention: "168h"
+  interval: "1h"
+ratelimit:
+  login_per_minute: 10
+  pairing_per_hour: 20
+  upload_per_minute: 60
+log:
+  level: "info"
+  format: "json"

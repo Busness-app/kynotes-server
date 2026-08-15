@@ -1,0 +1,34 @@
+name: verify
+on: [push, pull_request]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.6'
+      - run: go build ./...
+      - run: go vet ./...
+      - run: test -z "$(gofmt -l .)"
+      - run: go test -race ./...
+      - run: go test -fuzz=FuzzParsePairingToken -fuzztime=60s ./internal/auth
+      - run: go test -fuzz=FuzzParseAuthSecret -fuzztime=60s ./internal/auth
+      - run: go test -fuzz=FuzzParseID -fuzztime=60s ./internal/ids
+      - run: go test -fuzz=FuzzParseChunkHeaders -fuzztime=60s ./internal/httpapi
+      - run: go test -fuzz=FuzzParseCursor -fuzztime=60s ./internal/httpapi
+      - run: go test -fuzz=FuzzConfigLoad -fuzztime=60s ./internal/config
+      - run: |
+          set -eu
+          image=kynotes-server:ci
+          docker build -t "$image" .
+          auth='{"authSecret":"b9eb85992f985b432a3feaf4f5ea0b7b7960a5da42c640a3b9d93a83fc5bef1d","loginSalt":"MDEyMzQ1Njc4OWFiY2RlZg==","iterations":100000}'
+          printf '%s' "$auth" | docker run -i --rm --user "$(id -u):$(id -g)" -v "$PWD/testdata/config-good:/data" "$image" user add --config /data/kynotes.yaml --username probe
+          docker run -d --name kynotes-probe-server --user "$(id -u):$(id -g)" -p 8080:8080 -v "$PWD/testdata/config-good:/data" "$image" --config /data/kynotes.yaml
+          trap 'docker rm -f kynotes-probe-server >/dev/null 2>&1 || true' EXIT
+          ready=0
+          for i in $(seq 1 30); do if curl -fsS http://127.0.0.1:8080/healthz >/dev/null; then ready=1; break; fi; sleep 1; done
+          test "$ready" -eq 1
+          go run ./cmd/kynotes-probe -url http://127.0.0.1:8080 -username probe -password 'correct horse battery staple' -config /data/kynotes.yaml -server docker
+      - run: go install golang.org/x/vuln/cmd/govulncheck@latest
+      - run: govulncheck ./...

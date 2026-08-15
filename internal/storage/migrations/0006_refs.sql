@@ -1,0 +1,12 @@
+CREATE TABLE attachment_refs (attachment_id TEXT NOT NULL REFERENCES attachments(id) ON DELETE CASCADE,object_id TEXT NOT NULL REFERENCES objects(id) ON DELETE CASCADE,object_version INTEGER NOT NULL,created_at TEXT NOT NULL,PRIMARY KEY(attachment_id,object_id,object_version));
+CREATE INDEX idx_attachment_refs_object ON attachment_refs(object_id);
+CREATE INDEX idx_sessions_user ON sessions(user_id);
+CREATE INDEX idx_sessions_expiry ON sessions(expires_at);
+CREATE INDEX idx_devices_user ON devices(user_id);
+CREATE INDEX idx_memberships_user ON memberships(user_id);
+CREATE INDEX idx_envelopes_device ON key_envelopes(device_id);
+CREATE INDEX idx_objects_container_seq ON objects(container_id,change_seq);
+CREATE INDEX idx_object_versions_digest ON object_versions(blob_digest);
+CREATE INDEX idx_conflicts_object ON conflicts(object_id);
+CREATE INDEX idx_conflicts_digest ON conflicts(blob_digest);
+CREATE INDEX idx_attachments_container_seq ON attachments(container_id,change_seq);
