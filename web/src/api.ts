@@ -1,6 +1,6 @@
 export type User = { id: string; role: string };
 export type Session = { user: User; expiresAt: string; hardExpiresAt: string };
-export type Container = { id: string; kind: string; metaVersion: number; changeSeq: number };
+export type Container = { id: string; kind: string; metaCiphertext: string; metaVersion: number; changeSeq: number };
 export type Change = { id: string; kind: string; changeSeq: number; deleted: boolean };
 export type Note = { id: string; title: string; body: string; version: number; updatedAt: string };
 
@@ -46,6 +46,17 @@ export function createContainer(kind = "workbook", metaCiphertext = "") {
   return request<Container>("/api/v1/containers", {
     method: "POST", body: JSON.stringify({ kind, metaCiphertext }),
   });
+}
+
+export function updateContainer(id: string, metaCiphertext: string, baseVersion: number) {
+  return request<{ metaVersion: number; changeSeq: number }>(`/api/v1/containers/${encodeURIComponent(id)}`, {
+    method: "PATCH", body: JSON.stringify({ metaCiphertext, baseVersion }),
+  });
+}
+
+export async function serviceStatus() {
+  const [health, ready] = await Promise.all([fetch("/healthz"), fetch("/readyz")]);
+  return { health: health.ok, ready: ready.ok };
 }
 
 export async function changes(containerID: string, since = 0) {

@@ -15,10 +15,10 @@ func ContainerRoutes(mux *http.ServeMux, db *sql.DB) {
 	mux.Handle("GET /api/v1/containers", auth.RequireEither(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		uid, _ := auth.CredentialUserID(r)
 		device, isDevice := auth.DeviceFromContext(r)
-		query := `SELECT c.id,c.kind,c.meta_version,c.change_seq FROM containers c JOIN memberships m ON m.container_id=c.id WHERE m.user_id=? AND m.revoked_at='' AND c.deleted_at=''`
+		query := `SELECT c.id,c.kind,c.meta_ciphertext,c.meta_version,c.change_seq FROM containers c JOIN memberships m ON m.container_id=c.id WHERE m.user_id=? AND m.revoked_at='' AND c.deleted_at=''`
 		args := []any{uid}
 		if isDevice {
-			query = `SELECT c.id,c.kind,c.meta_version,c.change_seq FROM containers c JOIN memberships m ON m.container_id=c.id JOIN device_containers dc ON dc.container_id=c.id AND dc.device_id=? WHERE m.user_id=? AND m.revoked_at='' AND c.deleted_at=''`
+			query = `SELECT c.id,c.kind,c.meta_ciphertext,c.meta_version,c.change_seq FROM containers c JOIN memberships m ON m.container_id=c.id JOIN device_containers dc ON dc.container_id=c.id AND dc.device_id=? WHERE m.user_id=? AND m.revoked_at='' AND c.deleted_at=''`
 			args = []any{device.ID, uid}
 		}
 		rows, e := db.Query(query, args...)
@@ -30,9 +30,10 @@ func ContainerRoutes(mux *http.ServeMux, db *sql.DB) {
 		out := []map[string]any{}
 		for rows.Next() {
 			var id, kind string
+			var meta []byte
 			var version, seq int64
-			_ = rows.Scan(&id, &kind, &version, &seq)
-			out = append(out, map[string]any{"id": id, "kind": kind, "metaVersion": version, "changeSeq": seq})
+			_ = rows.Scan(&id, &kind, &meta, &version, &seq)
+			out = append(out, map[string]any{"id": id, "kind": kind, "metaCiphertext": base64.StdEncoding.EncodeToString(meta), "metaVersion": version, "changeSeq": seq})
 		}
 		writeJSON(w, out)
 	})))
@@ -69,7 +70,7 @@ func ContainerRoutes(mux *http.ServeMux, db *sql.DB) {
 			WriteError(w, r, 500, "internal", "internal server error")
 			return
 		}
-		writeJSON(w, map[string]any{"id": id, "kind": in.Kind, "metaVersion": 0, "changeSeq": 1})
+		writeJSON(w, map[string]any{"id": id, "kind": in.Kind, "metaCiphertext": in.Meta, "metaVersion": 0, "changeSeq": 1})
 	})))
 	mux.Handle("PATCH /api/v1/containers/{id}", auth.RequireSession(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if auth.CheckCSRF(r) != nil {

@@ -1,6 +1,7 @@
 package web
 
 import (
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -8,7 +9,17 @@ import (
 )
 
 func TestHandlerServesAppAndSPAPaths(t *testing.T) {
-	for _, path := range []string{"/", "/assets/index-C-SI29Po.js"} {
+	asset := ""
+	_ = fs.WalkDir(dist, ".", func(path string, entry fs.DirEntry, err error) error {
+		if err == nil && !entry.IsDir() && strings.HasSuffix(path, ".js") {
+			asset = "/" + strings.TrimPrefix(path, "dist/")
+		}
+		return nil
+	})
+	if asset == "" {
+		t.Fatal("embedded JavaScript asset is missing")
+	}
+	for _, path := range []string{"/", asset} {
 		req := httptest.NewRequest(http.MethodGet, path, nil)
 		res := httptest.NewRecorder()
 		Handler().ServeHTTP(res, req)

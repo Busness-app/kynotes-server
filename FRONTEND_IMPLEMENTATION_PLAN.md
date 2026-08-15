@@ -45,6 +45,13 @@ The editor is the primary workflow. Sync, encryption, version, and device
 states are visible but quiet. A future constellation view may augment the
 sidebar; it must not replace ordinary note navigation.
 
+The responsive MVP also includes encrypted, user-defined workspace names, a
+KyPost-inspired settings layout, browser-local theme selection with the full
+15-theme palette, and an admin-only server status panel. Workspace names remain
+ciphertext metadata; the server never receives their plaintext. Server-wide
+configuration remains host-managed until an authenticated admin configuration
+API is added.
+
 ## 3. Technology and repository layout
 
 Use React, TypeScript, and Vite for the web application. Use native Web Crypto

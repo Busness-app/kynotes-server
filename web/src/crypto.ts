@@ -17,17 +17,40 @@ function fromBase64(value: string): Uint8Array {
   const binary = atob(value);
   return Uint8Array.from(binary, (char) => char.charCodeAt(0));
 }
+export { fromBase64 };
 
 function buffer(value: Uint8Array): ArrayBuffer {
   return value.slice().buffer as ArrayBuffer;
 }
 
-async function objectKey(authSecret: string, containerID: string): Promise<CryptoKey> {
+async function derivedKey(authSecret: string, containerID: string, info: string): Promise<CryptoKey> {
   const root = await crypto.subtle.importKey("raw", buffer(hexBytes(authSecret)), "HKDF", false, ["deriveKey"]);
   return crypto.subtle.deriveKey(
-    { name: "HKDF", hash: "SHA-256", salt: buffer(encoder.encode(containerID)), info: buffer(encoder.encode("kynotes/object/v1")) },
+    { name: "HKDF", hash: "SHA-256", salt: buffer(encoder.encode(containerID)), info: buffer(encoder.encode(info)) },
     root, { name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"],
   );
+}
+
+async function objectKey(authSecret: string, containerID: string) {
+  return derivedKey(authSecret, containerID, "kynotes/object/v1");
+}
+
+export async function encryptContainerMeta(authSecret: string, containerID: string, name: string): Promise<Uint8Array> {
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const key = await derivedKey(authSecret, containerID, "kynotes/container-meta/v1");
+  const ciphertext = await crypto.subtle.encrypt({ name: "AES-GCM", iv: buffer(iv) }, key, buffer(encoder.encode(JSON.stringify({ name }))));
+  const result = new Uint8Array(iv.byteLength + ciphertext.byteLength);
+  result.set(iv); result.set(new Uint8Array(ciphertext), iv.byteLength);
+  return result;
+}
+
+export async function decryptContainerMeta(authSecret: string, containerID: string, bytes: Uint8Array): Promise<{ name: string }> {
+  if (bytes.byteLength < 13) throw new Error("Encrypted workspace metadata is too short");
+  const key = await derivedKey(authSecret, containerID, "kynotes/container-meta/v1");
+  const plaintext = await crypto.subtle.decrypt({ name: "AES-GCM", iv: buffer(bytes.slice(0, 12)) }, key, buffer(bytes.slice(12)));
+  const result = JSON.parse(decoder.decode(plaintext)) as { name?: unknown };
+  if (typeof result.name !== "string") throw new Error("Invalid workspace metadata");
+  return { name: result.name };
 }
 
 export async function deriveAuthSecret(password: string, salt: string, iterations: number): Promise<string> {
