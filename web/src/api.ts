@@ -74,6 +74,9 @@ export function updateAdminSettings(defaultTheme: string) { return request<void>
 export function updateAdminUser(user: AdminUser) { return request<void>(`/api/v1/admin/users/${encodeURIComponent(user.id)}`, { method: "PATCH", body: JSON.stringify(user) }); }
 export function changePassword(input: { currentAuthSecret: string; newAuthSecret: string; newLoginSalt: string; iterations: number }) { return request<void>("/api/v1/auth/password", { method: "POST", body: JSON.stringify(input) }); }
 export const members = (containerID: string) => request<Array<{ userId: string; username: string; role: string }>>(`/api/v1/containers/${encodeURIComponent(containerID)}/members`);
+export const notifications = () => request<Array<{ id: string; objectId: string; authorUserId: string; createdAt: string; kind: string }>>("/api/v1/notifications");
+export const presence = (containerID: string) => request<Array<{ userId: string; state: string }>>(`/api/v1/presence?containerId=${encodeURIComponent(containerID)}`);
+export function updatePresence(containerID: string, state: "editing" | "viewing" | "idle") { return request<void>("/api/v1/presence", { method: "POST", body: JSON.stringify({ containerId: containerID, state }) }); }
 export function inviteMember(containerID: string, inviteeID: string, role: string) { return request<{ id: string; token: string }>(`/api/v1/containers/${encodeURIComponent(containerID)}/invitations`, { method: "POST", body: JSON.stringify({ inviteeId: inviteeID, role }) }); }
 export function removeMember(containerID: string, userID: string) { return request<void>(`/api/v1/containers/${encodeURIComponent(containerID)}/members/${encodeURIComponent(userID)}`, { method: "DELETE" }); }
 export const comments = (objectID: string) => request<Comment[]>(`/api/v1/objects/${encodeURIComponent(objectID)}/comments`);
@@ -102,7 +105,7 @@ export async function readObject(objectID: string, version?: number) {
 }
 
 export async function saveObject(objectID: string, bytes: Uint8Array, baseVersion: number, keyGeneration = 1) {
-  return request<{ version: number; resourceId?: string }>(`/api/v1/objects/${encodeURIComponent(objectID)}`, {
+  return request<{ version: number; resourceId?: string; commitReceipt?: string }>(`/api/v1/objects/${encodeURIComponent(objectID)}`, {
     method: "PUT",
     body: bytes as unknown as BodyInit,
     headers: {
@@ -112,6 +115,23 @@ export async function saveObject(objectID: string, bytes: Uint8Array, baseVersio
       "Idempotency-Key": crypto.randomUUID(),
     },
   });
+}
+
+export function createShareLink(objectID: string, expiresAt: string, version = 0) {
+  return request<{ id: string; token: string; objectId: string; version: number; expiresAt: string; commitReceipt: string }>(`/api/v1/objects/${encodeURIComponent(objectID)}/share-links`, {
+    method: "POST", body: JSON.stringify({ version, expiresAt }),
+  });
+}
+
+export function createSealedShareLink(ciphertext: Uint8Array, expiresAt: string) {
+  let binary = ""; for (const byte of ciphertext) binary += String.fromCharCode(byte);
+  return request<{ id: string; token: string; expiresAt: string }>("/api/v1/share-links", { method: "POST", body: JSON.stringify({ ciphertext: btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", ""), expiresAt }) });
+}
+
+export async function fetchShareCiphertext(token: string) {
+  const response = await fetch(`/api/v1/share-links/${encodeURIComponent(token)}`, { headers: { Accept: "application/octet-stream" } });
+  if (!response.ok) throw new Error("This encrypted link is invalid or expired.");
+  return new Uint8Array(await response.arrayBuffer());
 }
 
 export const deleteObject = (objectID: string) => request<void>(`/api/v1/objects/${encodeURIComponent(objectID)}`, { method: "DELETE" });

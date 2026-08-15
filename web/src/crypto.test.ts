@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { decryptContainerMeta, decryptNote, deriveAuthSecret, encryptContainerMeta, encryptNote } from "./crypto";
+import { decryptContainerMeta, decryptNote, decryptSharePayload, deriveAuthSecret, encryptContainerMeta, encryptNote, encryptSharePayload } from "./crypto";
 
 describe("browser crypto", () => {
   it("matches the server auth fixture", async () => {
@@ -21,5 +21,13 @@ describe("browser crypto", () => {
     const ciphertext = await encryptContainerMeta(secret, "cnt_test", "Research");
     expect(new TextDecoder().decode(ciphertext)).not.toContain("Research");
     await expect(decryptContainerMeta(secret, "cnt_test", ciphertext)).resolves.toEqual({ name: "Research" });
+  });
+
+  it("seals a share with a separate URL-fragment key", async () => {
+    const note = { title: "Shared", body: "Ciphertext only" };
+    const sealed = await encryptSharePayload(note);
+    expect(sealed.key).not.toContain("=");
+    expect(new TextDecoder().decode(sealed.ciphertext)).not.toContain(note.body);
+    await expect(decryptSharePayload(sealed.ciphertext, sealed.key)).resolves.toEqual(note);
   });
 });

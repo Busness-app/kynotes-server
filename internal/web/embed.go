@@ -24,7 +24,7 @@ func Handler() http.Handler {
 		}
 		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'")
 		requested := strings.TrimPrefix(path.Clean(r.URL.Path), "/")
-		if requested == "." || requested == "" {
+		if requested == "." || requested == "" || strings.HasPrefix(requested, "share/") {
 			requested = "index.html"
 		}
 		if _, err := fs.Stat(files, requested); err != nil {

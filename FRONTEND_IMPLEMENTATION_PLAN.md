@@ -58,6 +58,17 @@ supports manual saves, and displays encrypted comments. Admins can set the
 server default theme, manage account role/status, and inspect metadata-only
 audit records.
 
+The next product slice adds an encrypted local retry queue, deterministic
+client-side search, contextual resurfacing, local Markdown link graph edges,
+encrypted section anchors for comments, a single-pane Markdown/WYSIWYG editor,
+commit receipts, and ciphertext-only share links whose decryption material is
+kept in the URL fragment. KyBackup owns backup and restore. Cross-server
+workspace migration is intentionally deferred to v2.
+
+Browser-sealed links are opened at `/share/<token>#<key>`; the server returns
+only the opaque ciphertext and the browser performs decryption. The link key
+is never sent in an HTTP request.
+
 ## 3. Technology and repository layout
 
 Use React, TypeScript, and Vite for the web application. Use native Web Crypto

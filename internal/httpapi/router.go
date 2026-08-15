@@ -37,6 +37,7 @@ func NewRouter(log *logging.Logger, max int64, ready func() bool, extras ...any)
 		DeviceRoutes(mux, db, cfg)
 		if blobs != nil {
 			ObjectRoutes(mux, db, blobs, cfg.Limits.ObjectMaxBytes)
+			ShareLinkRoutes(mux, db, blobs)
 			UploadRoutes(mux, db, blobs, cfg)
 		}
 	}
@@ -57,7 +58,7 @@ func NewRouter(log *logging.Logger, max int64, ready func() bool, extras ...any)
 	})
 	static := web.Handler()
 	mux.Handle("/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/" && !strings.HasPrefix(r.URL.Path, "/assets/") && !strings.HasPrefix(r.URL.Path, "/fonts/") {
+		if r.URL.Path != "/" && r.URL.Path != "/manifest.webmanifest" && !strings.HasPrefix(r.URL.Path, "/share/") && !strings.HasPrefix(r.URL.Path, "/assets/") && !strings.HasPrefix(r.URL.Path, "/fonts/") {
 			WriteError(w, r, http.StatusNotFound, "not_found", "not found")
 			return
 		}

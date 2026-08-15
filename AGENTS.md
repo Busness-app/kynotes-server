@@ -67,6 +67,21 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   reuse path; it does not alter the frozen server plan.
 - `web/` is the browser client; keep plaintext in browser memory only, send
   CSRF headers on mutations, and run its `npm test` plus `npm run build` checks.
+- `web/` also contains the encrypted local save queue, client-only search,
+  contextual resurfacing, graph projections, single-pane Markdown/WYSIWYG
+  editing, and encrypted section anchors for comments.
+- `internal/httpapi` commit receipts are deterministic SHA-256 commitments over
+  opaque object/version metadata and ciphertext digest; share links store only
+  token hashes and serve ciphertext without the URL-fragment decryption key.
+  Browser-sealed links use a dedicated random content key and never reuse the
+  authentication or workspace key.
+- `internal/httpapi` presence is TTL-only in memory and membership-gated;
+  notifications expose mention metadata only and use the existing 90-second
+  foreground refresh cadence in the browser.
+- `internal/storage/migrations/0011_sealed_share_links.sql` stores browser-sealed
+  ciphertext separately from object-backed share links.
+- KyBackup owns backup/restore; cross-server workspace migration is deferred to
+  v2.
 - `internal/web` embeds the production `web/dist` bundle into the server image;
   update the checked-in embed after frontend bundle changes.
 - Verification for server changes: `go test -race ./...`, `go vet ./...`, and

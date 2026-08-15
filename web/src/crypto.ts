@@ -53,8 +53,8 @@ export async function decryptContainerMeta(authSecret: string, containerID: stri
   return { name: result.name };
 }
 
-export const encryptComment = (authSecret: string, containerID: string, body: string) => encryptWithInfo(authSecret, containerID, "kynotes/comment/v1", { body });
-export async function decryptComment(authSecret: string, containerID: string, bytes: Uint8Array): Promise<{ body: string }> { return decryptWithInfo(authSecret, containerID, "kynotes/comment/v1", bytes) as Promise<{ body: string }>; }
+export const encryptComment = (authSecret: string, containerID: string, body: string, section = "") => encryptWithInfo(authSecret, containerID, "kynotes/comment/v1", { body, section });
+export async function decryptComment(authSecret: string, containerID: string, bytes: Uint8Array): Promise<{ body: string; section?: string }> { return decryptWithInfo(authSecret, containerID, "kynotes/comment/v1", bytes) as Promise<{ body: string; section?: string }>; }
 async function encryptWithInfo(authSecret: string, containerID: string, info: string, value: unknown): Promise<Uint8Array> { const iv = crypto.getRandomValues(new Uint8Array(12)); const key = await derivedKey(authSecret, containerID, info); const ciphertext = await crypto.subtle.encrypt({ name: "AES-GCM", iv: buffer(iv) }, key, buffer(encoder.encode(JSON.stringify(value)))); const result = new Uint8Array(iv.byteLength + ciphertext.byteLength); result.set(iv); result.set(new Uint8Array(ciphertext), iv.byteLength); return result; }
 async function decryptWithInfo(authSecret: string, containerID: string, info: string, bytes: Uint8Array): Promise<unknown> { if (bytes.byteLength < 13) throw new Error("Encrypted comment is too short"); const key = await derivedKey(authSecret, containerID, info); const plaintext = await crypto.subtle.decrypt({ name: "AES-GCM", iv: buffer(bytes.slice(0, 12)) }, key, buffer(bytes.slice(12))); return JSON.parse(decoder.decode(plaintext)); }
 
@@ -87,3 +87,23 @@ export async function decryptNote(authSecret: string, containerID: string, bytes
 
 export type NotePayload = { title: string; body: string };
 export { base64 };
+
+export async function encryptSharePayload(note: NotePayload): Promise<{ ciphertext: Uint8Array; key: string }> {
+  const key = await crypto.subtle.generateKey({ name: "AES-GCM", length: 256 }, true, ["encrypt", "decrypt"]);
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const ciphertext = await crypto.subtle.encrypt({ name: "AES-GCM", iv: buffer(iv) }, key, buffer(encoder.encode(JSON.stringify(note))));
+  const raw = new Uint8Array(await crypto.subtle.exportKey("raw", key));
+  const sealed = new Uint8Array(iv.length + ciphertext.byteLength);
+  sealed.set(iv); sealed.set(new Uint8Array(ciphertext), iv.length);
+  return { ciphertext: sealed, key: base64url(raw) };
+}
+
+export async function decryptSharePayload(bytes: Uint8Array, encodedKey: string): Promise<NotePayload> {
+  const keyBytes = base64urlDecode(encodedKey);
+  const key = await crypto.subtle.importKey("raw", buffer(keyBytes), "AES-GCM", false, ["decrypt"]);
+  const plaintext = await crypto.subtle.decrypt({ name: "AES-GCM", iv: buffer(bytes.slice(0, 12)) }, key, buffer(bytes.slice(12)));
+  return JSON.parse(decoder.decode(plaintext)) as NotePayload;
+}
+
+function base64url(bytes: Uint8Array): string { return base64(bytes).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", ""); }
+function base64urlDecode(value: string): Uint8Array { return fromBase64(value.replaceAll("-", "+").replaceAll("_", "/") + "=".repeat((4 - value.length % 4) % 4)); }

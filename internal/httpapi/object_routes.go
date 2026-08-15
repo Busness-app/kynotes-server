@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"encoding/base64"
+	"encoding/binary"
 	"encoding/hex"
 	"github.com/yoshiofthewire/kynotes-server/internal/auth"
 	"github.com/yoshiofthewire/kynotes-server/internal/blobstore"
@@ -13,6 +14,39 @@ import (
 	"strconv"
 	"time"
 )
+
+func commitReceipt(objectID, digest string, version, bytes, generation, baseVersion, changeSeq int64) string {
+	h := sha256.New()
+	_, _ = h.Write([]byte("kynotes-commit-receipt-v1\x00"))
+	writeReceiptString := func(v string) {
+		var n [8]byte
+		binary.BigEndian.PutUint64(n[:], uint64(len(v)))
+		_, _ = h.Write(n[:])
+		_, _ = h.Write([]byte(v))
+	}
+	writeReceiptInt := func(v int64) {
+		var n [8]byte
+		binary.BigEndian.PutUint64(n[:], uint64(v))
+		_, _ = h.Write(n[:])
+	}
+	writeReceiptString(objectID)
+	writeReceiptInt(version)
+	writeReceiptString(digest)
+	writeReceiptInt(bytes)
+	writeReceiptInt(generation)
+	writeReceiptInt(baseVersion)
+	writeReceiptInt(changeSeq)
+	return "sha256:" + hex.EncodeToString(h.Sum(nil))
+}
+
+func currentCommitReceipt(db *sql.DB, objectID string, version int64) string {
+	var digest string
+	var bytes, generation, baseVersion, changeSeq int64
+	if db.QueryRow(`SELECT v.blob_digest,v.ciphertext_bytes,v.key_generation,v.base_version,v.change_seq FROM object_versions v WHERE v.object_id=? AND v.version=?`, objectID, version).Scan(&digest, &bytes, &generation, &baseVersion, &changeSeq) != nil {
+		return ""
+	}
+	return commitReceipt(objectID, digest, version, bytes, generation, baseVersion, changeSeq)
+}
 
 func ObjectRoutes(mux *http.ServeMux, db *sql.DB, blobs *blobstore.Store, max int64) {
 	mux.Handle("GET /api/v1/objects/{id}/conflicts", auth.RequireEither(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -209,7 +243,7 @@ func ObjectRoutes(mux *http.ServeMux, db *sql.DB, blobs *blobstore.Store, max in
 				}
 				var v int64
 				_ = db.QueryRow(`SELECT current_version FROM objects WHERE id=?`, oid).Scan(&v)
-				writeJSON(w, map[string]any{"version": v, "resourceId": resource})
+				writeJSON(w, map[string]any{"version": v, "resourceId": resource, "commitReceipt": currentCommitReceipt(db, oid, v)})
 				return
 			}
 		}
@@ -307,6 +341,6 @@ func ObjectRoutes(mux *http.ServeMux, db *sql.DB, blobs *blobstore.Store, max in
 			WriteError(w, r, 500, "internal", "internal server error")
 			return
 		}
-		writeJSON(w, map[string]any{"version": next, "digest": digest, "bytes": size})
+		writeJSON(w, map[string]any{"version": next, "digest": digest, "bytes": size, "commitReceipt": commitReceipt(oid, digest, next, size, generation, base, changeSeq)})
 	})))
 }

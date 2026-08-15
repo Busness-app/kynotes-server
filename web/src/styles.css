@@ -153,5 +153,20 @@ button, input, textarea, select { border-radius: 12px; corner-shape: squircle; }
 .format-toolbar button, .pin-button { border-radius: 10px; corner-shape: squircle; }
 .markdown-preview, .markdown-editor, .comments, .comment { border-radius: 16px; corner-shape: squircle; }
 .comment { overflow: hidden; }
+.note-search { min-width: 110px; width: 150px; padding: 7px 9px; border: 1px solid var(--line); color: var(--ink-strong); background: var(--panel); }
+.context-panel { display: grid; gap: 7px; margin: 24px 4px 0; padding-top: 16px; border-top: 1px solid var(--line); }
+.context-link { text-align: left; color: var(--ink); background: transparent; padding: 5px 0; }
+.context-link:hover { color: var(--ink-strong); }
+.format-toolbar button.active { color: var(--ink-strong); outline: 2px solid var(--accent); }
+.single-pane-editor { min-height: 360px; display: flex; }
+.single-pane-editor .body-input, .markdown-wysiwyg { width: 100%; }
+.markdown-wysiwyg { min-height: 360px; padding: 28px 0; color: var(--ink); outline: none; line-height: 1.8; }
+.markdown-wysiwyg:focus { box-shadow: 0 0 0 3px var(--glow); }
+.comment-compose { flex-wrap: wrap; }
+.comment-compose input:first-child { flex: 0 1 180px; }
+.shared-note { width: min(100%, 760px); padding: 48px; color: var(--ink-strong); background: var(--panel); border: 1px solid var(--line); border-radius: 24px; corner-shape: squircle; box-shadow: 12px 12px 0 var(--accent-soft); }
+.shared-note h1 { font-size: clamp(32px, 7vw, 58px); }
+.shared-note-body { color: var(--ink); font-size: 17px; line-height: 1.8; }
+@media (max-width: 800px) { .note-search { width: 100%; } .list-actions { flex-wrap: wrap; } }
 .editor-actions .danger.quiet { color: #b42318; background: transparent; border: 1px solid transparent; }
 .editor-actions .danger.quiet:hover, .editor-actions .danger.quiet:focus-visible { color: #9b1c12; background: color-mix(in srgb, #b42318 12%, var(--panel)); border-color: color-mix(in srgb, #b42318 30%, var(--line)); }
