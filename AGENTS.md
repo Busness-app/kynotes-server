@@ -86,6 +86,8 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
 - `internal/httpapi` presence is TTL-only in memory and membership-gated;
   notifications expose mention metadata only and use the existing 90-second
   foreground refresh cadence in the browser.
+- `POST /api/v1/admin/teams` is the explicit admin team-creation path; it
+  creates the owner membership and records `admin.team.create`.
 - `internal/storage/migrations/0011_sealed_share_links.sql` stores browser-sealed
   ciphertext separately from object-backed share links.
 - KyBackup owns backup/restore; cross-server workspace migration is deferred to

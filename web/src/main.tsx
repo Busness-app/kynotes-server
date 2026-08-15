@@ -11,6 +11,7 @@ import {
   comments,
   containers,
   createAdminUser,
+  createAdminTeam,
   createComment,
   createContainer,
   createObject,
@@ -1364,7 +1365,8 @@ function AdminTeams({ users }: { users: AdminUser[] }) {
   useEffect(reload, []);
   async function createTeam() {
     try {
-      await createContainer("team");
+      const created = await createAdminTeam();
+      setTeams((value) => [created, ...value]);
       reload();
     } catch (error) {
       alert(error instanceof Error ? error.message : "Unable to create team");

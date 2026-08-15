@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"database/sql"
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"strconv"
@@ -26,6 +27,40 @@ func recordAudit(db *sql.DB, actor, event, container, object, requestID string) 
 // AdminRoutes exposes metadata-only administration. It never returns secrets,
 // ciphertext, request bodies, or raw process logs.
 func AdminRoutes(mux *http.ServeMux, db *sql.DB) {
+	mux.Handle("POST /api/v1/admin/teams", auth.RequireAdmin(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if auth.CheckCSRF(r) != nil {
+			WriteError(w, r, 403, "csrf_failed", "csrf validation failed")
+			return
+		}
+		s, _ := auth.SessionFromContext(r)
+		var in struct {
+			MetaCiphertext string `json:"metaCiphertext"`
+		}
+		if json.NewDecoder(r.Body).Decode(&in) != nil || len(in.MetaCiphertext) > 8192 {
+			WriteError(w, r, 400, "invalid_request", "invalid request")
+			return
+		}
+		meta, err := base64.StdEncoding.DecodeString(in.MetaCiphertext)
+		if err != nil || len(meta) > 4096 {
+			WriteError(w, r, 400, "invalid_request", "invalid request")
+			return
+		}
+		teamID, _ := ids.Mint("cnt")
+		membershipID, _ := ids.Mint("mem")
+		now := time.Now().UTC().Format(time.RFC3339)
+		if err = dbTx(db, func(tx *sql.Tx) error {
+			if _, e := tx.Exec(`INSERT INTO containers(id,kind,owner_user_id,change_seq,meta_ciphertext,meta_version,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)`, teamID, "team", s.UserID, 1, meta, 0, now, now); e != nil {
+				return e
+			}
+			_, e := tx.Exec(`INSERT INTO memberships(id,container_id,user_id,role,created_at) VALUES(?,?,?,?,?)`, membershipID, teamID, s.UserID, "owner", now)
+			return e
+		}); err != nil {
+			WriteError(w, r, 500, "internal", "internal server error")
+			return
+		}
+		recordAudit(db, s.UserID, "admin.team.create", teamID, "", r.Header.Get("X-Request-Id"))
+		writeJSON(w, map[string]any{"id": teamID, "kind": "team", "ownerUserId": s.UserID, "metaCiphertext": in.MetaCiphertext, "metaVersion": 0, "changeSeq": 1, "keyGeneration": 1})
+	})))
 	mux.Handle("GET /api/v1/admin/teams", auth.RequireAdmin(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		rows, err := db.Query(`SELECT id,kind,owner_user_id FROM containers WHERE kind='team' AND deleted_at='' ORDER BY id`)
 		if err != nil {
