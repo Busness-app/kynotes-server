@@ -38,6 +38,31 @@ export function stringifyNoteDocument(document: JSONContent): string {
   return JSON.stringify({ format: NOTE_DOCUMENT_FORMAT, document });
 }
 
+export async function normalizeNoteBody(body: string): Promise<string> {
+  try {
+    const value = JSON.parse(body) as Partial<NoteDocument> & JSONContent;
+    if ((value.format === NOTE_DOCUMENT_FORMAT && value.document?.type === "doc") || value.type === "doc") {
+      return stringifyNoteDocument(parseNoteDocument(body).document);
+    }
+  } catch {
+    /* Legacy content is parsed below. */
+  }
+  if (!body) return stringifyNoteDocument(emptyNoteDocument().document);
+  try {
+    const [{ MarkdownManager }, { default: StarterKit }, { default: Image }, { default: Link }] = await Promise.all([
+      import("@tiptap/markdown"),
+      import("@tiptap/starter-kit"),
+      import("@tiptap/extension-image"),
+      import("@tiptap/extension-link"),
+    ]);
+    const document = new MarkdownManager({ extensions: [StarterKit, Image, Link] }).parse(body);
+    if (document.type === "doc") return stringifyNoteDocument(document);
+  } catch {
+    /* Preserve content as plain text if legacy Markdown cannot be parsed. */
+  }
+  return stringifyNoteDocument(parseNoteDocument(body).document);
+}
+
 export function documentText(body: string): string {
   const value = parseNoteDocument(body).document;
   const text: string[] = [];

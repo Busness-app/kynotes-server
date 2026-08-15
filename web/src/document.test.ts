@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { documentText, emptyNoteDocument, parseNoteDocument, stringifyNoteDocument } from "./document";
+import { documentText, emptyNoteDocument, normalizeNoteBody, parseNoteDocument, stringifyNoteDocument } from "./document";
 
 describe("note document format", () => {
   it("round-trips structured content without Markdown", () => {
@@ -21,5 +21,14 @@ describe("note document format", () => {
 
   it("does not silently hide an unrecognized body", () => {
     expect(documentText("not Markdown")).toBe("not Markdown");
+  });
+
+  it("imports legacy Markdown formatting and attachment images", async () => {
+    const body = await normalizeNoteBody("# Heading\n\n**Bold**\n\n![diagram](attachment://att_image)");
+    const document = parseNoteDocument(body).document;
+    expect(document.content?.map((node) => node.type)).toEqual(["heading", "paragraph", "image"]);
+    expect(document.content?.[0]?.content?.[0]?.text).toBe("Heading");
+    expect(document.content?.[1]?.content?.[0]?.marks).toEqual([{ type: "bold" }]);
+    expect(document.content?.[2]?.attrs?.src).toBe("attachment://att_image");
   });
 });

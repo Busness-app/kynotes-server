@@ -88,7 +88,7 @@ import {
   type ThemeName,
 } from "./theme";
 import { contextualNotes, graphEdges, searchNotes } from "./knowledge";
-import { documentText, emptyNoteDocument, parseNoteDocument, stringifyNoteDocument } from "./document";
+import { documentText, emptyNoteDocument, normalizeNoteBody, parseNoteDocument, stringifyNoteDocument } from "./document";
 import type { EditorActions } from "./TiptapEditor";
 import "./styles.css";
 
@@ -513,6 +513,7 @@ function Workspace({
           loaded.push({
             id: change.id,
             ...payload,
+            body: await normalizeNoteBody(payload.body),
             version:
               cached && cached.version >= object.version
                 ? cached.version
@@ -534,6 +535,7 @@ function Workspace({
               loaded.push({
                 id: change.id,
                 ...payload,
+                body: await normalizeNoteBody(payload.body),
                 version: cached.version,
                 updatedAt: cached.updatedAt,
               });
