@@ -298,6 +298,7 @@ function Workspace({
   const [selectedNote, setSelectedNote] = useState<Note | null>(null);
   const [commentsForNote, setCommentsForNote] = useState<PlainComment[]>([]);
   const [attachmentsForNote, setAttachmentsForNote] = useState<PlainAttachment[]>([]);
+  const [attachmentSources, setAttachmentSources] = useState<Record<string, string>>({});
   const [uploadProgress, setUploadProgress] = useState<Record<string, { name: string; uploaded: number; total: number; failed?: boolean }>>({});
   const cancelledUploads = useRef(new Set<string>());
   const [commentText, setCommentText] = useState("");
@@ -330,6 +331,9 @@ function Workspace({
     "markdown",
   );
   const imageInput = useRef<HTMLInputElement>(null);
+  const markdownInput = useRef<HTMLTextAreaElement>(null);
+  const insertEditorText = useRef<(value: string) => void>(() => {});
+  const insertEditorImage = useRef<(source: string, alt: string) => void>(() => {});
   const pinsKey = `kynotes-pins-${auth.user.id}`;
   const pinned = useMemo(() => {
     try {
@@ -353,6 +357,33 @@ function Workspace({
       }),
     [notes, pinned, sort],
   );
+  useEffect(() => {
+    let cancelled = false;
+    const urls: string[] = [];
+    void Promise.all(
+      attachmentsForNote
+        .filter((attachment) => attachment.type.startsWith("image/"))
+        .map(async (attachment) => {
+          try {
+            const encrypted = await downloadAttachment(attachment.id);
+            const plaintext = await decryptAttachment(auth.authSecret, selected?.id ?? "", encrypted);
+            const url = URL.createObjectURL(new Blob([plaintext.slice().buffer as ArrayBuffer], { type: attachment.type }));
+            urls.push(url);
+            return [attachment.id, url] as const;
+          } catch {
+            return null;
+          }
+        }),
+    ).then((entries) => {
+      if (cancelled) return;
+      setAttachmentSources(Object.fromEntries(entries.filter((entry): entry is readonly [string, string] => entry !== null)));
+    });
+    return () => {
+      cancelled = true;
+      urls.forEach((url) => URL.revokeObjectURL(url));
+      setAttachmentSources({});
+    };
+  }, [attachmentsForNote, auth.authSecret, selected?.id]);
   const visibleNotes = useMemo(
     () => searchNotes(orderedNotes, query),
     [orderedNotes, query],
@@ -849,27 +880,23 @@ function Workspace({
   }
   function insertMarkdown(value: string) {
     if (!selectedNote) return;
-    editBody(
-      `${selectedNote.body}${selectedNote.body.endsWith("\n") ? "" : "\n"}${value}\n`,
-    );
-  }
-  function addInlineImage(file: File) {
-    if (!selectedNote || !file.type.startsWith("image/")) return;
-    // ponytail: inline data URLs keep this dependency-free; move large images to encrypted attachment nodes if media needs grow.
-    if (file.size > 2 * 1024 * 1024) {
-      setError("Inline images are limited to 2 MB. Use an encrypted attachment for larger files.");
+    if (editorMode === "wysiwyg") {
+      insertEditorText.current(value);
       return;
     }
-    const reader = new FileReader();
-    reader.onload = () => {
-      const dataURL = typeof reader.result === "string" ? reader.result : "";
-      if (!dataURL) return;
-      const filename = file.name.replace(/[\[\]()\r\n]/g, "").trim() || "image";
-      editBody(`${selectedNote.body}${selectedNote.body.endsWith("\n") ? "" : "\n"}\n![${filename}](${dataURL})\n`);
-      setError("Inline image added; it will be encrypted with the note.");
-    };
-    reader.onerror = () => setError("Unable to read image");
-    reader.readAsDataURL(file);
+    const input = markdownInput.current;
+    if (!input) {
+      editBody(`${selectedNote.body}${selectedNote.body.endsWith("\n") ? "" : "\n"}${value}\n`);
+      return;
+    }
+    const start = input.selectionStart;
+    const end = input.selectionEnd;
+    const next = `${selectedNote.body.slice(0, start)}${value}${selectedNote.body.slice(end)}`;
+    editBody(next);
+    requestAnimationFrame(() => {
+      input.focus();
+      input.setSelectionRange(start + value.length, start + value.length);
+    });
   }
   async function uploadPending(job: Awaited<ReturnType<typeof pendingUploads>>[number]) {
     const status = await uploadStatus(job.uploadId);
@@ -889,6 +916,7 @@ function Workspace({
     await attachToObject(job.objectID, finalized.attachmentId, job.objectVersion);
     await clearUpload(job.uploadId);
     setUploadProgress((value) => { const next = { ...value }; delete next[job.uploadId]; return next; });
+    return finalized.attachmentId;
   }
   async function resumeUploads() {
     if (drainingUploads.current) return;
@@ -918,21 +946,43 @@ function Workspace({
     if (!job) return;
     try { await uploadPending(job); } catch { setError(`Attachment waiting to resume: ${job.name}`); }
   }
-  async function addAttachment(file: File) {
-    if (!selected || !selectedNote) return;
-    setBusy(true);
-    try {
+  async function uploadAttachment(file: File): Promise<PlainAttachment> {
+    if (!selected || !selectedNote) throw new Error("Select a note first");
       const encrypted = await encryptAttachment(auth.authSecret, selected.id, new Uint8Array(await file.arrayBuffer()));
       const digest = [...new Uint8Array(await crypto.subtle.digest("SHA-256", encrypted.slice().buffer as ArrayBuffer))].map((byte) => byte.toString(16).padStart(2, "0")).join("");
       const upload = await createUpload(selected.id, encrypted.byteLength, digest);
       const metadata = await encryptAttachmentMetadata(auth.authSecret, selected.id, { name: file.name, type: file.type, size: file.size });
       const job = { uploadId: upload.uploadId, containerID: selected.id, objectID: selectedNote.id, objectVersion: selectedNote.version, keyGeneration: selected.keyGeneration, chunkBytes: upload.chunkBytes, nextChunk: upload.nextChunk, payload: encrypted, metadataCiphertext: btoa(String.fromCharCode(...metadata)), name: file.name, type: file.type, size: file.size };
       await putUpload(job);
-      await uploadPending(job);
-      await selectNote(selectedNote);
+      const attachmentID = await uploadPending(job);
+      return { id: attachmentID, name: file.name, type: file.type, size: file.size };
+  }
+  async function addAttachment(file: File) {
+    if (!selected || !selectedNote) return;
+    setBusy(true);
+    try {
+      const attachment = await uploadAttachment(file);
+      setAttachmentsForNote((value) => [...value, attachment]);
       setError("Attachment uploaded and encrypted.");
     } catch (error) {
       setError(error instanceof Error ? error.message : "Unable to upload attachment");
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function addInlineImage(file: File) {
+    if (!selectedNote || !file.type.startsWith("image/")) return;
+    setBusy(true);
+    try {
+      const attachment = await uploadAttachment(file);
+      const filename = file.name.replace(/[\[\]()\r\n]/g, "").trim() || "image";
+      setAttachmentsForNote((value) => [...value, attachment]);
+      const source = `attachment://${attachment.id}`;
+      if (editorMode === "wysiwyg") insertEditorImage.current(source, filename);
+      else insertMarkdown(`![${filename}](${source})`);
+      setError("Inline image added and encrypted as an attachment.");
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "Unable to add inline image");
     } finally {
       setBusy(false);
     }
@@ -1294,19 +1344,18 @@ function Workspace({
                   >
                     WYSIWYG
                   </button>
-                  {editorMode === "markdown" && <>
-                    <button onClick={() => insertMarkdown("**bold text**")}>Bold</button>
-                    <button onClick={() => insertMarkdown("*italic text*")}>Italic</button>
-                    <button onClick={() => insertMarkdown("## Heading")}>Heading</button>
-                    <button onClick={() => insertMarkdown("- list item")}>List</button>
-                    <button onClick={() => insertMarkdown("`code`")}>Code</button>
-                  </>}
+                  <button onClick={() => insertMarkdown("**bold text**")}>Bold</button>
+                  <button onClick={() => insertMarkdown("*italic text*")}>Italic</button>
+                  <button onClick={() => insertMarkdown("## Heading")}>Heading</button>
+                  <button onClick={() => insertMarkdown("- list item")}>List</button>
+                  <button onClick={() => insertMarkdown("`code`")}>Code</button>
                   <button onClick={() => imageInput.current?.click()}>Image</button>
                   <input ref={imageInput} className="visually-hidden" type="file" accept="image/*" onChange={(event) => { const file = event.target.files?.[0]; if (file) addInlineImage(file); event.currentTarget.value = ""; }} />
                 </div>
                 <div className="single-pane-editor">
                   {editorMode === "markdown" ? (
                     <textarea
+                      ref={markdownInput}
                       className="body-input"
                       value={selectedNote.body}
                       onChange={(event) => editBody(event.target.value)}
@@ -1318,6 +1367,9 @@ function Workspace({
                         key={`${selectedNote.id}-${editorMode}`}
                         value={selectedNote.body}
                         onChange={editBody}
+                        imageSources={attachmentSources}
+                        onReady={(insert) => { insertEditorText.current = insert; }}
+                        onImageReady={(insert) => { insertEditorImage.current = insert; }}
                       />
                     </Suspense>
                   )}

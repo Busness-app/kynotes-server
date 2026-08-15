@@ -73,8 +73,8 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   anchors for comments. Attachment payloads and metadata are encrypted in the
   browser, and pending chunked uploads are persisted in the IndexedDB vault
   for reload recovery, with visible progress, retry, and cancel controls. The
-  small inline images are Markdown data URLs encrypted inside the note; larger
-  files use encrypted attachments. The workspace surface
+  inline images use encrypted attachment payloads and store only attachment
+  references in Markdown. The workspace surface
   labels personal workbooks explicitly, and the admin surface uses tabbed
   server, users, teams, and audit sections. The save queue is kept in the
   existing IndexedDB vault, drains on startup/online recovery and every 15
