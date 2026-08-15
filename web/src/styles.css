@@ -96,6 +96,13 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 .sync-dot, .encrypted, .status-line { color: var(--accent); }
 .brand-mark { background: var(--ink-strong); color: var(--accent); }
 .toast { background: var(--panel); border-color: var(--line); color: var(--ink-strong); box-shadow: 4px 4px 0 var(--accent-soft); }
+.topbar, .list-header, h2, .account-chip, .empty-editor, .editor-actions { color: var(--ink-strong); }
+.new-workspace, .note-row strong { color: var(--ink-strong); }
+.note-row span, .empty-editor p { color: var(--ink); }
+.note-row.selected, .nav-item.selected, .nav-item:hover { background: var(--accent-soft); }
+.icon-button { background: var(--accent-soft); color: var(--ink-strong); }
+.avatar { background: var(--accent-soft); color: var(--ink-strong); }
+.body-input { color: var(--ink); }
 .team-label { margin-top: 26px; }
 .list-actions { display: flex; align-items: center; gap: 8px; }
 .list-actions select { border: 1px solid var(--line); padding: 7px; background: var(--panel); color: var(--ink); }

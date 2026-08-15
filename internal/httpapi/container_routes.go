@@ -70,6 +70,7 @@ func ContainerRoutes(mux *http.ServeMux, db *sql.DB) {
 			WriteError(w, r, 500, "internal", "internal server error")
 			return
 		}
+		recordAudit(db, s.UserID, "container.create", id, "", r.Header.Get("X-Request-Id"))
 		writeJSON(w, map[string]any{"id": id, "kind": in.Kind, "metaCiphertext": in.Meta, "metaVersion": 0, "changeSeq": 1, "keyGeneration": 1})
 	})))
 	mux.Handle("PATCH /api/v1/containers/{id}", auth.RequireSession(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

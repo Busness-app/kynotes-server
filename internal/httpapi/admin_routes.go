@@ -14,6 +14,15 @@ import (
 
 var supportedThemes = map[string]bool{"Dark Matter": true, "Light Matter": true, "Tropics": true, "Tropic Night": true, "Ocean": true, "Coffee": true, "White Cliffs": true, "Cyber Punk": true, "Neon Purple": true, "Space": true, "Sky": true, "Forest": true, "Sun": true, "Patina Ky": true, "Polished Ky": true}
 
+func recordAudit(db *sql.DB, actor, event, container, object, requestID string) {
+	id, err := ids.Mint("aud")
+	if err != nil {
+		return
+	}
+	now := time.Now().UTC().Format(time.RFC3339)
+	_, _ = db.Exec(`INSERT INTO audit_events(id,user_id,event,container_id,object_id,created_at,at,outcome,actor_user_id,request_id,reason_code) VALUES(?,?,?,?,?,?,?,?,?,?,?)`, id, actor, event, container, object, now, now, "success", actor, requestID, "")
+}
+
 // AdminRoutes exposes metadata-only administration. It never returns secrets,
 // ciphertext, request bodies, or raw process logs.
 func AdminRoutes(mux *http.ServeMux, db *sql.DB) {
@@ -49,6 +58,8 @@ func AdminRoutes(mux *http.ServeMux, db *sql.DB) {
 			WriteError(w, r, 409, "already_exists", "unable to add member")
 			return
 		}
+		s, _ := auth.SessionFromContext(r)
+		recordAudit(db, s.UserID, "admin.team.member_add", r.PathValue("id"), in.UserID, r.Header.Get("X-Request-Id"))
 		w.WriteHeader(http.StatusNoContent)
 	})))
 	mux.Handle("DELETE /api/v1/admin/teams/{id}/members/{userID}", auth.RequireAdmin(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -60,6 +71,8 @@ func AdminRoutes(mux *http.ServeMux, db *sql.DB) {
 			WriteError(w, r, 500, "internal", "internal server error")
 			return
 		}
+		s, _ := auth.SessionFromContext(r)
+		recordAudit(db, s.UserID, "admin.team.member_remove", r.PathValue("id"), r.PathValue("userID"), r.Header.Get("X-Request-Id"))
 		w.WriteHeader(http.StatusNoContent)
 	})))
 	mux.Handle("POST /api/v1/admin/users", auth.RequireAdmin(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -87,6 +100,8 @@ func AdminRoutes(mux *http.ServeMux, db *sql.DB) {
 			WriteError(w, r, 409, "already_exists", "username already exists")
 			return
 		}
+		s, _ := auth.SessionFromContext(r)
+		recordAudit(db, s.UserID, "admin.user.create", "", id, r.Header.Get("X-Request-Id"))
 		writeJSON(w, map[string]string{"id": id})
 	})))
 	mux.Handle("GET /api/v1/admin/settings", auth.RequireAdmin(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -169,6 +184,7 @@ func AdminRoutes(mux *http.ServeMux, db *sql.DB) {
 			WriteError(w, r, 500, "internal", "internal server error")
 			return
 		}
+		recordAudit(db, s.UserID, "admin.user.update", "", id, r.Header.Get("X-Request-Id"))
 		w.WriteHeader(http.StatusNoContent)
 	})))
 	mux.Handle("POST /api/v1/admin/users/{id}/password", auth.RequireAdmin(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -194,6 +210,8 @@ func AdminRoutes(mux *http.ServeMux, db *sql.DB) {
 			return
 		}
 		_, _ = db.Exec(`UPDATE sessions SET revoked_at=? WHERE user_id=?`, time.Now().UTC().Format(time.RFC3339), r.PathValue("id"))
+		s, _ := auth.SessionFromContext(r)
+		recordAudit(db, s.UserID, "admin.user.password_reset", "", r.PathValue("id"), r.Header.Get("X-Request-Id"))
 		w.WriteHeader(http.StatusNoContent)
 	})))
 	mux.Handle("GET /api/v1/admin/audit", auth.RequireAdmin(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

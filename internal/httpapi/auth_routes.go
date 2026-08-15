@@ -79,6 +79,7 @@ func AuthRoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config) {
 			WriteError(w, r, 500, "internal", "internal server error")
 			return
 		}
+		recordAudit(db, id, "auth.login", "", "", r.Header.Get("X-Request-Id"))
 		writeJSON(w, map[string]any{"user": map[string]string{"id": id, "role": role}, "expiresAt": s.ExpiresAt.UTC().Format(time.RFC3339), "hardExpiresAt": s.HardExpiresAt.UTC().Format(time.RFC3339)})
 	})
 	mux.Handle("GET /api/v1/auth/session", auth.RequireSession(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -130,6 +131,7 @@ func AuthRoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config) {
 			WriteError(w, r, 500, "internal", "internal server error")
 			return
 		}
+		recordAudit(db, s.UserID, "account.password_change", "", "", r.Header.Get("X-Request-Id"))
 		w.WriteHeader(http.StatusNoContent)
 	})))
 	mux.Handle("POST /api/v1/auth/logout-all", auth.RequireSession(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
