@@ -6,6 +6,15 @@ The compose service does not publish a host port. Set `server.behind_proxy`
 and list only the proxy networks in `trusted_proxies`; the proxy must forward
 the client address through `X-Forwarded-For`.
 
+For local/LAN access without a reverse proxy, use the development override:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.local.yml up -d --build
+```
+
+It publishes `8081` on the host and forwards it to the server's internal
+port `8080`. Do not use this override for an internet-facing deployment.
+
 The server applies read-header, read, write, idle, and graceful-shutdown
 timeouts from the configuration. Keep the default non-root container,
 read-only root filesystem, dropped capabilities, and `/data`/`/tmp` writable

@@ -1,0 +1,4 @@
+services:
+  kynotes:
+    ports:
+      - "8081:8080"
