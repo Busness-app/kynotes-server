@@ -1,4 +1,6 @@
 /kynotes-server
+/web/node_modules
+/web/dist
 
 # Local runtime data
 *.sqlite

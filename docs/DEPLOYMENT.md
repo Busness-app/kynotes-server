@@ -1,9 +1,10 @@
 # KyNotes Server deployment
 
 Run the container behind an HTTPS reverse proxy on the same Docker network. The
-compose service does not publish a host port. Set `server.behind_proxy` and
-list only the proxy networks in `trusted_proxies`; the proxy must forward the
-client address through `X-Forwarded-For`.
+embedded web client is served at `/`; `/api/` is served by the same process.
+The compose service does not publish a host port. Set `server.behind_proxy`
+and list only the proxy networks in `trusted_proxies`; the proxy must forward
+the client address through `X-Forwarded-For`.
 
 The server applies read-header, read, write, idle, and graceful-shutdown
 timeouts from the configuration. Keep the default non-root container,

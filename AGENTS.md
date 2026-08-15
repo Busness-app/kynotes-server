@@ -63,5 +63,9 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
 - `FRONTEND_IMPLEMENTATION_PLAN.md` defines the separate responsive web MVP,
   browser crypto/local-storage boundaries, sync state machine, and mobile
   reuse path; it does not alter the frozen server plan.
+- `web/` is the browser client; keep plaintext in browser memory only, send
+  CSRF headers on mutations, and run its `npm test` plus `npm run build` checks.
+- `internal/web` embeds the production `web/dist` bundle into the server image;
+  update the checked-in embed after frontend bundle changes.
 - Verification for server changes: `go test -race ./...`, `go vet ./...`, and
   `gofmt -l .`.

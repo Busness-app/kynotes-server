@@ -79,10 +79,12 @@ packages/
 The first implementation may keep `packages/` inside `web/src` while the
 interfaces stabilize. Extract shared packages before starting a mobile app.
 
-The production deployment uses one origin:
+The production deployment uses one origin. The Docker build runs the frontend
+build and embeds `web/dist` into the Go binary, so the existing server serves
+the application at `/`:
 
 ```text
-/       → static frontend
+/       → embedded frontend
 /api/   → KyNotes Server
 ```
 

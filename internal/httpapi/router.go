@@ -6,8 +6,10 @@ import (
 	"github.com/yoshiofthewire/kynotes-server/internal/blobstore"
 	"github.com/yoshiofthewire/kynotes-server/internal/config"
 	"github.com/yoshiofthewire/kynotes-server/internal/logging"
+	"github.com/yoshiofthewire/kynotes-server/internal/web"
 	"net"
 	"net/http"
+	"strings"
 )
 
 func NewRouter(log *logging.Logger, max int64, ready func() bool, extras ...any) http.Handler {
@@ -52,7 +54,14 @@ func NewRouter(log *logging.Logger, max int64, ready func() bool, extras ...any)
 	mux.HandleFunc("/api/v1/", func(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, r, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
 	})
-	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) { WriteError(w, r, 404, "not_found", "not found") })
+	static := web.Handler()
+	mux.Handle("/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/" && !strings.HasPrefix(r.URL.Path, "/assets/") && !strings.HasPrefix(r.URL.Path, "/fonts/") {
+			WriteError(w, r, http.StatusNotFound, "not_found", "not found")
+			return
+		}
+		static.ServeHTTP(w, r)
+	}))
 	var proxies []*net.IPNet
 	for _, p := range cfg.Server.TrustedProxies {
 		if _, n, e := net.ParseCIDR(p); e == nil {
