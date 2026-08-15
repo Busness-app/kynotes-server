@@ -19,7 +19,7 @@ describe("note document format", () => {
     expect(documentText(stringifyNoteDocument(document))).toBe("[diagram]");
   });
 
-  it("starts invalid content as an empty document", () => {
-    expect(parseNoteDocument("not Markdown").document).toEqual(emptyNoteDocument().document);
+  it("does not silently hide an unrecognized body", () => {
+    expect(documentText("not Markdown")).toBe("not Markdown");
   });
 });

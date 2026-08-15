@@ -24,7 +24,14 @@ export function parseNoteDocument(body: string): NoteDocument {
   } catch {
     /* Empty or invalid content is treated as a new document. */
   }
-  return emptyNoteDocument();
+  if (!body) return emptyNoteDocument();
+  return {
+    format: NOTE_DOCUMENT_FORMAT,
+    document: {
+      type: "doc",
+      content: [{ type: "paragraph", content: [{ type: "text", text: body }] }],
+    },
+  };
 }
 
 export function stringifyNoteDocument(document: JSONContent): string {
