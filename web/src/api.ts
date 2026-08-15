@@ -3,6 +3,7 @@ export type Session = { user: User; expiresAt: string; hardExpiresAt: string };
 export type Container = { id: string; kind: string; metaCiphertext: string; metaVersion: number; changeSeq: number; keyGeneration: number };
 export type Comment = { id: string; authorUserId: string; username: string; bodyCiphertext: string; keyGeneration: number; createdAt: string };
 export type AdminUser = { id: string; username: string; role: string; status: string; quotaBytes: number; createdAt: string };
+export type AdminTeam = { id: string; kind: string; ownerUserId: string };
 export type Change = { id: string; kind: string; changeSeq: number; deleted: boolean };
 export type Note = { id: string; title: string; body: string; version: number; updatedAt: string };
 
@@ -63,9 +64,15 @@ export async function serviceStatus() {
 }
 export const adminUsers = () => request<AdminUser[]>("/api/v1/admin/users");
 export const adminAudit = () => request<Array<Record<string, string>>>("/api/v1/admin/audit");
+export const adminTeams = () => request<AdminTeam[]>("/api/v1/admin/teams");
+export function createAdminUser(input: { username: string; authSecret: string; loginSalt: string; iterations: number; role: string }) { return request<{ id: string }>("/api/v1/admin/users", { method: "POST", body: JSON.stringify(input) }); }
+export function resetAdminPassword(id: string, input: { newAuthSecret: string; newLoginSalt: string; iterations: number }) { return request<void>(`/api/v1/admin/users/${encodeURIComponent(id)}/password`, { method: "POST", body: JSON.stringify(input) }); }
+export function addAdminTeamMember(teamID: string, userID: string, role: string) { return request<void>(`/api/v1/admin/teams/${encodeURIComponent(teamID)}/members`, { method: "POST", body: JSON.stringify({ userId: userID, role }) }); }
+export function removeAdminTeamMember(teamID: string, userID: string) { return request<void>(`/api/v1/admin/teams/${encodeURIComponent(teamID)}/members/${encodeURIComponent(userID)}`, { method: "DELETE" }); }
 export const adminSettings = () => request<{ defaultTheme: string }>("/api/v1/admin/settings");
 export function updateAdminSettings(defaultTheme: string) { return request<void>("/api/v1/admin/settings", { method: "PATCH", body: JSON.stringify({ defaultTheme }) }); }
 export function updateAdminUser(user: AdminUser) { return request<void>(`/api/v1/admin/users/${encodeURIComponent(user.id)}`, { method: "PATCH", body: JSON.stringify(user) }); }
+export function changePassword(input: { currentAuthSecret: string; newAuthSecret: string; newLoginSalt: string; iterations: number }) { return request<void>("/api/v1/auth/password", { method: "POST", body: JSON.stringify(input) }); }
 export const members = (containerID: string) => request<Array<{ userId: string; username: string; role: string }>>(`/api/v1/containers/${encodeURIComponent(containerID)}/members`);
 export function inviteMember(containerID: string, inviteeID: string, role: string) { return request<{ id: string; token: string }>(`/api/v1/containers/${encodeURIComponent(containerID)}/invitations`, { method: "POST", body: JSON.stringify({ inviteeId: inviteeID, role }) }); }
 export function removeMember(containerID: string, userID: string) { return request<void>(`/api/v1/containers/${encodeURIComponent(containerID)}/members/${encodeURIComponent(userID)}`, { method: "DELETE" }); }

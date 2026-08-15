@@ -67,6 +67,8 @@ export async function deriveAuthSecret(password: string, salt: string, iteration
   return [...new Uint8Array(result)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
+export function randomLoginSalt() { const bytes = crypto.getRandomValues(new Uint8Array(16)); let binary = ""; for (const byte of bytes) binary += String.fromCharCode(byte); return btoa(binary); }
+
 export async function encryptNote(authSecret: string, containerID: string, note: NotePayload): Promise<Uint8Array> {
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const key = await objectKey(authSecret, containerID);

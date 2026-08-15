@@ -92,6 +92,10 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 .auth-card form input { background: var(--bg); color: var(--ink-strong); border-color: var(--line); }
 .auth-card form input:focus, .title-input:focus, .body-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--glow); }
 .auth-card form button { background: var(--accent); color: var(--button-text); }
+.section-label, .editor-meta, .empty-list, .hint, .quiet { color: var(--ink); }
+.sync-dot, .encrypted, .status-line { color: var(--accent); }
+.brand-mark { background: var(--ink-strong); color: var(--accent); }
+.toast { background: var(--panel); border-color: var(--line); color: var(--ink-strong); box-shadow: 4px 4px 0 var(--accent-soft); }
 .team-label { margin-top: 26px; }
 .list-actions { display: flex; align-items: center; gap: 8px; }
 .list-actions select { border: 1px solid var(--line); padding: 7px; background: var(--panel); color: var(--ink); }

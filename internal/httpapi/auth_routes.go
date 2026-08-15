@@ -102,6 +102,36 @@ func AuthRoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config) {
 		clearCookie(w, "csrf_token", false, secure)
 		w.WriteHeader(http.StatusNoContent)
 	})))
+	mux.Handle("POST /api/v1/auth/password", auth.RequireSession(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if auth.CheckCSRF(r) != nil {
+			WriteError(w, r, 403, "csrf_failed", "csrf validation failed")
+			return
+		}
+		s, _ := auth.SessionFromContext(r)
+		var in struct {
+			CurrentAuthSecret, NewAuthSecret, NewLoginSalt string
+			Iterations                                     int `json:"iterations"`
+		}
+		if json.NewDecoder(r.Body).Decode(&in) != nil || len(in.CurrentAuthSecret) != 64 || len(in.NewAuthSecret) != 64 || in.NewLoginSalt == "" || in.Iterations < 100000 || in.Iterations > 1000000 {
+			WriteError(w, r, 400, "invalid_request", "invalid request")
+			return
+		}
+		var stored string
+		if db.QueryRow(`SELECT auth_secret_hash FROM users WHERE id=? AND status='active'`, s.UserID).Scan(&stored) != nil || auth.VerifyAuthSecret(in.CurrentAuthSecret, stored) != nil {
+			WriteError(w, r, 401, "unauthenticated", "current password is incorrect")
+			return
+		}
+		hash, err := auth.HashAuthSecret(in.NewAuthSecret)
+		if err != nil {
+			WriteError(w, r, 500, "internal", "internal server error")
+			return
+		}
+		if _, err = db.Exec(`UPDATE users SET auth_secret_hash=?,login_salt=?,login_iterations=?,updated_at=? WHERE id=?`, hash, in.NewLoginSalt, in.Iterations, time.Now().UTC().Format(time.RFC3339), s.UserID); err != nil {
+			WriteError(w, r, 500, "internal", "internal server error")
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})))
 	mux.Handle("POST /api/v1/auth/logout-all", auth.RequireSession(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if auth.CheckCSRF(r) != nil {
 			WriteError(w, r, 403, "csrf_failed", "csrf validation failed")
