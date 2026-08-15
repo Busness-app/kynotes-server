@@ -60,5 +60,8 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
 - `cmd/kynotes-probe` is the live 12-step client interoperability acceptance
   path; it uses the same session, pairing, envelope, sync, upload, and GC
   contracts as external clients.
+- `FRONTEND_IMPLEMENTATION_PLAN.md` defines the separate responsive web MVP,
+  browser crypto/local-storage boundaries, sync state machine, and mobile
+  reuse path; it does not alter the frozen server plan.
 - Verification for server changes: `go test -race ./...`, `go vet ./...`, and
   `gofmt -l .`.
