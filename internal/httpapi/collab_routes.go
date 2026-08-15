@@ -80,8 +80,17 @@ func CollabRoutes(mux *http.ServeMux, db *sql.DB) {
 			if _, e := tx.Exec(`UPDATE containers SET key_generation=key_generation+1,change_seq=change_seq+1,updated_at=? WHERE id=?`, time.Now().UTC().Format(time.RFC3339), cid); e != nil {
 				return e
 			}
+			if _, e := tx.Exec(`UPDATE memberships SET revoked_at=? WHERE container_id IN (SELECT id FROM containers WHERE team_id=?) AND user_id=? AND revoked_at=''`, time.Now().UTC().Format(time.RFC3339), cid, target); e != nil {
+				return e
+			}
+			if _, e := tx.Exec(`UPDATE containers SET key_generation=key_generation+1,change_seq=change_seq+1,updated_at=? WHERE team_id=? AND deleted_at=''`, time.Now().UTC().Format(time.RFC3339), cid); e != nil {
+				return e
+			}
 			_, e = tx.Exec(`DELETE FROM key_envelopes WHERE container_id=? AND device_id IN (SELECT id FROM devices WHERE user_id=?)`, cid, target)
 			if e != nil {
+				return e
+			}
+			if _, e = tx.Exec(`DELETE FROM key_envelopes WHERE container_id IN (SELECT id FROM containers WHERE team_id=?) AND device_id IN (SELECT id FROM devices WHERE user_id=?)`, cid, target); e != nil {
 				return e
 			}
 			_, e = tx.Exec(`DELETE FROM device_containers WHERE container_id=? AND device_id IN (SELECT id FROM devices WHERE user_id=?)`, cid, target)
@@ -167,7 +176,10 @@ func CollabRoutes(mux *http.ServeMux, db *sql.DB) {
 			if n, _ := result.RowsAffected(); n != 1 {
 				return sql.ErrNoRows
 			}
-			_, e = tx.Exec(`INSERT INTO memberships(id,container_id,user_id,role,created_at) VALUES(?,?,?,?,?)`, mem, cid, s.UserID, role, now)
+			if _, e = tx.Exec(`INSERT INTO memberships(id,container_id,user_id,role,created_at) VALUES(?,?,?,?,?)`, mem, cid, s.UserID, role, now); e != nil {
+				return e
+			}
+			_, e = tx.Exec(`INSERT INTO memberships(id,container_id,user_id,role,created_at) SELECT 'mem_' || lower(hex(randomblob(12))),c.id,?, ?,? FROM containers c WHERE c.team_id=? AND c.deleted_at=''`, s.UserID, role, now, cid)
 			return e
 		})
 		if e != nil {

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
   addAdminTeamMember,
@@ -74,6 +74,8 @@ import {
 } from "./theme";
 import { contextualNotes, graphEdges, searchNotes } from "./knowledge";
 import "./styles.css";
+
+const MarkdownEditor = lazy(() => import("./MarkdownEditor").then((module) => ({ default: module.MarkdownEditor })));
 
 type AuthState = {
   username: string;
@@ -589,6 +591,25 @@ function Workspace({
       setBusy(false);
     }
   }
+  async function newTeamWorkspace(teamContainer: Container) {
+    const name = prompt("Team workspace name", "New workspace")?.trim();
+    if (!name) return;
+    setBusy(true);
+    try {
+      const container = await createContainer("workbook", "", teamContainer.id);
+      const encrypted = await encryptContainerMeta(auth.authSecret, container.id, name);
+      const encoded = btoa(String.fromCharCode(...encrypted));
+      const result = await updateContainer(container.id, encoded, container.metaVersion);
+      const named = { ...container, metaCiphertext: encoded, metaVersion: result.metaVersion, changeSeq: result.changeSeq };
+      setNames((value) => ({ ...value, [named.id]: name }));
+      setItems((value) => [...value, named]);
+      await selectContainer(named);
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "Unable to create team workspace");
+    } finally {
+      setBusy(false);
+    }
+  }
   async function renameWorkspace() {
     if (!selected) return;
     const name = prompt("Workspace name", nameOf(selected))?.trim();
@@ -867,8 +888,9 @@ function Workspace({
       );
     }
   }
-  const personal = items.filter((item) => item.kind !== "team");
+  const personal = items.filter((item) => item.kind !== "team" && !item.teamId);
   const teams = items.filter((item) => item.kind === "team");
+  const teamWorkspaces = (teamID: string) => items.filter((item) => item.teamId === teamID);
   return (
     <main className="app-shell">
       <header className="topbar">
@@ -925,14 +947,30 @@ function Workspace({
             ))}
             <div className="section-label team-label">TEAMS</div>
             {teams.map((container) => (
-              <button
-                className={`nav-item ${selected?.id === container.id ? "selected" : ""}`}
-                key={container.id}
-                onClick={() => void selectContainer(container)}
-              >
-                <span className="nav-icon">◇</span>
-                <span>{nameOf(container)}</span>
-              </button>
+              <React.Fragment key={container.id}>
+                <button
+                  className={`nav-item ${selected?.id === container.id ? "selected" : ""}`}
+                  onClick={() => void selectContainer(container)}
+                >
+                  <span className="nav-icon">◇</span>
+                  <span>{nameOf(container)}</span>
+                </button>
+                {teamWorkspaces(container.id).map((workspace) => (
+                  <button
+                    className={`nav-item nested-nav-item ${selected?.id === workspace.id ? "selected" : ""}`}
+                    key={workspace.id}
+                    onClick={() => void selectContainer(workspace)}
+                  >
+                    <span className="nav-icon">◈</span>
+                    <span>{nameOf(workspace)}</span>
+                  </button>
+                ))}
+                {selected?.id === container.id && (
+                  <button className="new-workspace" disabled={busy} onClick={() => void newTeamWorkspace(container)}>
+                    ＋ New team workspace
+                  </button>
+                )}
+              </React.Fragment>
             ))}
             <button
               className="new-workspace personal-create"
@@ -1119,19 +1157,13 @@ function Workspace({
                   >
                     WYSIWYG
                   </button>
-                  <button onClick={() => insertMarkdown("**bold text**")}>
-                    Bold
-                  </button>
-                  <button onClick={() => insertMarkdown("*italic text*")}>
-                    Italic
-                  </button>
-                  <button onClick={() => insertMarkdown("## Heading")}>
-                    Heading
-                  </button>
-                  <button onClick={() => insertMarkdown("- list item")}>
-                    List
-                  </button>
-                  <button onClick={() => insertMarkdown("`code`")}>Code</button>
+                  {editorMode === "markdown" && <>
+                    <button onClick={() => insertMarkdown("**bold text**")}>Bold</button>
+                    <button onClick={() => insertMarkdown("*italic text*")}>Italic</button>
+                    <button onClick={() => insertMarkdown("## Heading")}>Heading</button>
+                    <button onClick={() => insertMarkdown("- list item")}>List</button>
+                    <button onClick={() => insertMarkdown("`code`")}>Code</button>
+                  </>}
                 </div>
                 <div className="single-pane-editor">
                   {editorMode === "markdown" ? (
@@ -1142,21 +1174,13 @@ function Workspace({
                       placeholder="Write Markdown…"
                     />
                   ) : (
-                    <article
-                      className="markdown-wysiwyg"
-                      contentEditable
-                      suppressContentEditableWarning
-                      onInput={(event) =>
-                        editBody(
-                          (event.currentTarget.textContent ?? "").replace(
-                            /\u00a0/g,
-                            " ",
-                          ),
-                        )
-                      }
-                    >
-                      {markdown(selectedNote.body)}
-                    </article>
+                    <Suspense fallback={<div className="milkdown-editor editor-loading">Loading editor…</div>}>
+                      <MarkdownEditor
+                        key={`${selectedNote.id}-${editorMode}`}
+                        value={selectedNote.body}
+                        onChange={editBody}
+                      />
+                    </Suspense>
                   )}
                 </div>
                 <div className="editor-actions">

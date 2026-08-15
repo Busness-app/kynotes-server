@@ -1,6 +1,6 @@
 export type User = { id: string; role: string };
 export type Session = { user: User; expiresAt: string; hardExpiresAt: string };
-export type Container = { id: string; kind: string; metaCiphertext: string; metaVersion: number; changeSeq: number; keyGeneration: number };
+export type Container = { id: string; kind: string; teamId?: string; metaCiphertext: string; metaVersion: number; changeSeq: number; keyGeneration: number };
 export type Comment = { id: string; authorUserId: string; username: string; bodyCiphertext: string; keyGeneration: number; createdAt: string };
 export type AdminUser = { id: string; username: string; role: string; status: string; quotaBytes: number; createdAt: string };
 export type AdminTeam = { id: string; kind: string; ownerUserId: string; metaCiphertext?: string; metaVersion?: number; changeSeq?: number; keyGeneration?: number };
@@ -47,9 +47,9 @@ export const serverTheme = () => request<{ defaultTheme: string }>("/api/v1/them
 export const logout = () => request<void>("/api/v1/auth/logout", { method: "POST" });
 export const containers = () => request<Container[]>("/api/v1/containers");
 
-export function createContainer(kind = "workbook", metaCiphertext = "") {
+export function createContainer(kind = "workbook", metaCiphertext = "", teamId = "") {
   return request<Container>("/api/v1/containers", {
-    method: "POST", body: JSON.stringify({ kind, metaCiphertext }),
+    method: "POST", body: JSON.stringify({ kind, metaCiphertext, teamId }),
   });
 }
 

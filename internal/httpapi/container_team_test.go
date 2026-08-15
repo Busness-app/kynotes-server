@@ -1,0 +1,47 @@
+package httpapi
+
+import (
+	"encoding/json"
+	"net/http"
+	"strings"
+	"testing"
+)
+
+func TestTeamCanCreateMultipleChildWorkspaces(t *testing.T) {
+	f := newShareFixture(t)
+	if _, err := f.db.Exec(`INSERT INTO containers(id,kind,owner_user_id,created_at,updated_at) VALUES('cnt_team','team','usr_share','now','now')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.db.Exec(`INSERT INTO memberships(id,container_id,user_id,role,created_at) VALUES('mem_team','cnt_team','usr_share','owner','now')`); err != nil {
+		t.Fatal(err)
+	}
+	create := func() string {
+		req, _ := http.NewRequest(http.MethodPost, f.server.URL+"/api/v1/containers", strings.NewReader(`{"kind":"workbook","metaCiphertext":"","teamId":"cnt_team"}`))
+		f.csrf(req)
+		res, err := f.client.Do(req)
+		if err != nil || res.StatusCode != http.StatusOK {
+			t.Fatalf("create workspace err=%v status=%d", err, res.StatusCode)
+		}
+		defer res.Body.Close()
+		var result struct{ ID, TeamID string }
+		if err := json.NewDecoder(res.Body).Decode(&result); err != nil {
+			t.Fatal(err)
+		}
+		if result.TeamID != "cnt_team" {
+			t.Fatalf("team id=%q", result.TeamID)
+		}
+		return result.ID
+	}
+	first, second := create(), create()
+	if first == second {
+		t.Fatal("team workspace IDs are not unique")
+	}
+	var count int
+	if err := f.db.QueryRow(`SELECT COUNT(*) FROM containers WHERE team_id='cnt_team' AND deleted_at=''`).Scan(&count); err != nil || count != 2 {
+		t.Fatalf("child workspace count=%d err=%v", count, err)
+	}
+	var membershipCount int
+	if err := f.db.QueryRow(`SELECT COUNT(*) FROM memberships WHERE container_id IN (?,?) AND user_id='usr_share' AND revoked_at=''`, first, second).Scan(&membershipCount); err != nil || membershipCount != 2 {
+		t.Fatalf("child membership count=%d err=%v", membershipCount, err)
+	}
+}

@@ -91,7 +91,15 @@ func AdminRoutes(mux *http.ServeMux, db *sql.DB) {
 			WriteError(w, r, 400, "invalid_request", "invalid request")
 			return
 		}
-		if _, err := db.Exec(`INSERT INTO memberships(id,container_id,user_id,role,created_at) SELECT ?,?,?,?,? WHERE EXISTS(SELECT 1 FROM containers WHERE id=? AND kind='team' AND deleted_at='') AND EXISTS(SELECT 1 FROM users WHERE id=? AND status='active')`, func() string { id, _ := ids.Mint("mem"); return id }(), r.PathValue("id"), in.UserID, in.Role, time.Now().UTC().Format(time.RFC3339), r.PathValue("id"), in.UserID); err != nil {
+		membershipID, _ := ids.Mint("mem")
+		now := time.Now().UTC().Format(time.RFC3339)
+		if err := dbTx(db, func(tx *sql.Tx) error {
+			if _, err := tx.Exec(`INSERT INTO memberships(id,container_id,user_id,role,created_at) SELECT ?,?,?,?,? WHERE EXISTS(SELECT 1 FROM containers WHERE id=? AND kind='team' AND deleted_at='') AND EXISTS(SELECT 1 FROM users WHERE id=? AND status='active')`, membershipID, r.PathValue("id"), in.UserID, in.Role, now, r.PathValue("id"), in.UserID); err != nil {
+				return err
+			}
+			_, err := tx.Exec(`INSERT INTO memberships(id,container_id,user_id,role,created_at) SELECT 'mem_' || lower(hex(randomblob(12))),c.id,?, ?,? FROM containers c WHERE c.team_id=? AND c.deleted_at=''`, in.UserID, in.Role, now, r.PathValue("id"))
+			return err
+		}); err != nil {
 			WriteError(w, r, 409, "already_exists", "unable to add member")
 			return
 		}

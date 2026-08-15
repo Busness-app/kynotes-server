@@ -15,10 +15,10 @@ func ContainerRoutes(mux *http.ServeMux, db *sql.DB) {
 	mux.Handle("GET /api/v1/containers", auth.RequireEither(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		uid, _ := auth.CredentialUserID(r)
 		device, isDevice := auth.DeviceFromContext(r)
-		query := `SELECT c.id,c.kind,c.meta_ciphertext,c.meta_version,c.change_seq,c.key_generation FROM containers c JOIN memberships m ON m.container_id=c.id WHERE m.user_id=? AND m.revoked_at='' AND c.deleted_at=''`
+		query := `SELECT c.id,c.kind,c.team_id,c.meta_ciphertext,c.meta_version,c.change_seq,c.key_generation FROM containers c JOIN memberships m ON m.container_id=c.id WHERE m.user_id=? AND m.revoked_at='' AND c.deleted_at=''`
 		args := []any{uid}
 		if isDevice {
-			query = `SELECT c.id,c.kind,c.meta_ciphertext,c.meta_version,c.change_seq,c.key_generation FROM containers c JOIN memberships m ON m.container_id=c.id JOIN device_containers dc ON dc.container_id=c.id AND dc.device_id=? WHERE m.user_id=? AND m.revoked_at='' AND c.deleted_at=''`
+			query = `SELECT c.id,c.kind,c.team_id,c.meta_ciphertext,c.meta_version,c.change_seq,c.key_generation FROM containers c JOIN memberships m ON m.container_id=c.id JOIN device_containers dc ON dc.container_id=c.id AND dc.device_id=? WHERE m.user_id=? AND m.revoked_at='' AND c.deleted_at=''`
 			args = []any{device.ID, uid}
 		}
 		rows, e := db.Query(query, args...)
@@ -29,11 +29,11 @@ func ContainerRoutes(mux *http.ServeMux, db *sql.DB) {
 		defer rows.Close()
 		out := []map[string]any{}
 		for rows.Next() {
-			var id, kind string
+			var id, kind, teamID string
 			var meta []byte
 			var version, seq, generation int64
-			_ = rows.Scan(&id, &kind, &meta, &version, &seq, &generation)
-			out = append(out, map[string]any{"id": id, "kind": kind, "metaCiphertext": base64.StdEncoding.EncodeToString(meta), "metaVersion": version, "changeSeq": seq, "keyGeneration": generation})
+			_ = rows.Scan(&id, &kind, &teamID, &meta, &version, &seq, &generation)
+			out = append(out, map[string]any{"id": id, "kind": kind, "teamId": teamID, "metaCiphertext": base64.StdEncoding.EncodeToString(meta), "metaVersion": version, "changeSeq": seq, "keyGeneration": generation})
 		}
 		writeJSON(w, out)
 	})))
@@ -44,8 +44,9 @@ func ContainerRoutes(mux *http.ServeMux, db *sql.DB) {
 		}
 		s, _ := auth.SessionFromContext(r)
 		var in struct {
-			Kind string `json:"kind"`
-			Meta string `json:"metaCiphertext"`
+			Kind   string `json:"kind"`
+			Meta   string `json:"metaCiphertext"`
+			TeamID string `json:"teamId"`
 		}
 		if json.NewDecoder(r.Body).Decode(&in) != nil || (in.Kind != "workbook" && in.Kind != "project" && in.Kind != "team") {
 			WriteError(w, r, 400, "invalid_request", "invalid request")
@@ -56,11 +57,29 @@ func ContainerRoutes(mux *http.ServeMux, db *sql.DB) {
 			WriteError(w, r, 400, "invalid_request", "invalid request")
 			return
 		}
+		if in.TeamID != "" {
+			var role, teamKind string
+			if db.QueryRow(`SELECT m.role,c.kind FROM memberships m JOIN containers c ON c.id=m.container_id WHERE m.container_id=? AND m.user_id=? AND m.revoked_at='' AND c.deleted_at=''`, in.TeamID, s.UserID).Scan(&role, &teamKind) != nil || teamKind != "team" || (role != "owner" && role != "admin") {
+				WriteError(w, r, 403, "forbidden", "team workspace creation requires team administration")
+				return
+			}
+			if in.Kind == "team" {
+				WriteError(w, r, 400, "invalid_request", "team workspaces cannot be nested")
+				return
+			}
+		}
 		id, _ := ids.Mint("cnt")
 		mem, _ := ids.Mint("mem")
 		now := time.Now().UTC().Format(time.RFC3339)
 		e = dbTx(db, func(tx *sql.Tx) error {
-			if _, e := tx.Exec(`INSERT INTO containers(id,kind,owner_user_id,change_seq,meta_ciphertext,meta_version,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)`, id, in.Kind, s.UserID, 1, meta, 0, now, now); e != nil {
+			if _, e := tx.Exec(`INSERT INTO containers(id,kind,owner_user_id,team_id,change_seq,meta_ciphertext,meta_version,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)`, id, in.Kind, s.UserID, in.TeamID, 1, meta, 0, now, now); e != nil {
+				return e
+			}
+			if in.TeamID != "" {
+				if _, e := tx.Exec(`INSERT INTO memberships(id,container_id,user_id,role,created_at) SELECT ?,?,?,role,? FROM memberships WHERE container_id=? AND user_id=? AND revoked_at=''`, mem, id, s.UserID, now, in.TeamID, s.UserID); e != nil {
+					return e
+				}
+				_, e = tx.Exec(`INSERT INTO memberships(id,container_id,user_id,role,created_at) SELECT 'mem_' || lower(hex(randomblob(12))),?,?,role,? FROM memberships WHERE container_id=? AND user_id<>? AND revoked_at=''`, id, s.UserID, now, in.TeamID, s.UserID)
 				return e
 			}
 			_, e = tx.Exec(`INSERT INTO memberships(id,container_id,user_id,role,created_at) VALUES(?,?,?,?,?)`, mem, id, s.UserID, "owner", now)
@@ -71,7 +90,7 @@ func ContainerRoutes(mux *http.ServeMux, db *sql.DB) {
 			return
 		}
 		recordAudit(db, s.UserID, "container.create", id, "", r.Header.Get("X-Request-Id"))
-		writeJSON(w, map[string]any{"id": id, "kind": in.Kind, "metaCiphertext": in.Meta, "metaVersion": 0, "changeSeq": 1, "keyGeneration": 1})
+		writeJSON(w, map[string]any{"id": id, "kind": in.Kind, "teamId": in.TeamID, "metaCiphertext": in.Meta, "metaVersion": 0, "changeSeq": 1, "keyGeneration": 1})
 	})))
 	mux.Handle("PATCH /api/v1/containers/{id}", auth.RequireSession(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if auth.CheckCSRF(r) != nil {

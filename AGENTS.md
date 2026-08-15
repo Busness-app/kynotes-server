@@ -69,7 +69,8 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   CSRF headers on mutations, and run its `npm test` plus `npm run build` checks.
 - `web/` also contains the encrypted local save queue, client-only search,
   contextual resurfacing, graph projections, single-pane Markdown/WYSIWYG
-  editing, and encrypted section anchors for comments. The workspace surface
+  editing using a lazy-loaded Milkdown Markdown editor, and encrypted section
+  anchors for comments. The workspace surface
   labels personal workbooks explicitly, and the admin surface uses tabbed
   server, users, teams, and audit sections. The save queue is kept in the
   existing IndexedDB vault, drains on startup/online recovery and every 15
@@ -92,6 +93,8 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   creates the owner membership and records `admin.team.create`. Team names are
   encrypted in the browser using the team ID before metadata is updated; the
   admin list returns ciphertext for browser-side decryption.
+- Team workspaces are child containers linked by `team_id`; their membership
+  is copied from the parent team and membership changes propagate to children.
 - `internal/storage/migrations/0011_sealed_share_links.sql` stores browser-sealed
   ciphertext separately from object-backed share links.
 - KyBackup owns backup/restore; cross-server workspace migration is deferred to
