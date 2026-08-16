@@ -31,7 +31,6 @@ import {
   notifications,
   objectConflicts,
   objectAttachments,
-  presence,
   readObject,
   removeMember,
   resetAdminPassword,
@@ -283,9 +282,6 @@ function Workspace({
   const syncChannel = useRef<BroadcastChannel | null>(null);
   const selectedNoteRef = useRef<Note | null>(null);
   selectedNoteRef.current = selectedNote;
-  const [presenceForContainer, setPresenceForContainer] = useState<
-    Array<{ userId: string; state: string }>
-  >([]);
   const [notificationCount, setNotificationCount] = useState(0);
   const [membersForTeam, setMembersForTeam] = useState<
     Array<{ userId: string; username: string; role: string }>
@@ -321,7 +317,7 @@ function Workspace({
       }),
     [notes, pinned, sort],
   );
-  const searchableNotes = useMemo(() => indexNotes(notes), [notes]);
+  const searchableNotes = useMemo(() => indexNotes(orderedNotes), [orderedNotes]);
   useEffect(() => {
     let cancelled = false;
     const urls: string[] = [];
@@ -386,17 +382,11 @@ function Workspace({
   }, [commitReceipt]);
   useEffect(() => {
     if (!selected) return;
-    void presence(selected.id)
-      .then(setPresenceForContainer)
-      .catch(() => setPresenceForContainer([]));
     void updatePresence(
       selected.id,
       selectedNote ? "editing" : "viewing",
     ).catch(() => {});
     const timer = window.setInterval(() => {
-      void presence(selected.id)
-        .then(setPresenceForContainer)
-        .catch(() => {});
       void updatePresence(
         selected.id,
         selectedNote ? "editing" : "viewing",

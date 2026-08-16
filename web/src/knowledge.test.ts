@@ -16,6 +16,12 @@ describe("local knowledge projections", () => {
     expect(contextualNotes(notes, notes[0]).map((note) => note.id)).toEqual(["b"]);
   });
 
+  it("keeps the caller's ordering so the sort control survives search", () => {
+    const sorted = [notes[1], notes[0]];
+    expect(searchNotes(indexNotes(sorted), "").map((match) => match.note.id)).toEqual(["b", "a"]);
+    expect(searchNotes(indexNotes(sorted), "product").map((match) => match.note.id)).toEqual(["b", "a"]);
+  });
+
   it("searches flattened text but keeps the structured note it came from", () => {
     const body = stringifyNoteDocument([
       { type: "heading", props: { level: 2 }, content: "Launch" },
