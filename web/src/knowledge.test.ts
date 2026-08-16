@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { contextualNotes, graphEdges, noteTags, noteTasks, searchNotes } from "./knowledge";
+import { contextualNotes, graphEdges, indexNotes, noteTags, noteTasks, searchNotes } from "./knowledge";
+import { isStructuredNoteBody, stringifyNoteDocument } from "./document";
 
 const notes = [
   { id: "a", title: "Launch", body: "See [[b]] #product\n- [ ] Ship beta", updatedAt: "" },
@@ -13,5 +14,18 @@ describe("local knowledge projections", () => {
     expect(graphEdges(notes)).toEqual([{ from: "a", to: "b" }]);
     expect(searchNotes(notes, "beta").map((note) => note.id)).toEqual(["a", "b"]);
     expect(contextualNotes(notes, notes[0]).map((note) => note.id)).toEqual(["b"]);
+  });
+
+  it("searches flattened text but keeps the structured note it came from", () => {
+    const body = stringifyNoteDocument([
+      { type: "heading", props: { level: 2 }, content: "Launch" },
+      { type: "paragraph", content: [{ type: "text", text: "Ship it", styles: { bold: true } }] },
+    ]);
+    const index = indexNotes([{ id: "a", title: "Launch", body, updatedAt: "" }]);
+    const [match] = searchNotes(index, "ship it");
+    expect(match.body).toBe("Launch Ship it");
+    // Reopening a note from the list must not feed the editor flattened text.
+    expect(match.note.body).toBe(body);
+    expect(isStructuredNoteBody(match.note.body)).toBe(true);
   });
 });

@@ -1,9 +1,25 @@
+import { documentText } from "./document";
+
 export type NoteProjection = {
   id: string;
   title: string;
   body: string;
   updatedAt: string;
 };
+
+// Search reads plain text, but the editor needs the structured body, so every
+// projection carries the note it was flattened from.
+export type IndexedNote<T> = NoteProjection & { note: T };
+
+export function indexNotes<T extends NoteProjection>(notes: T[]): IndexedNote<T>[] {
+  return notes.map((note) => ({
+    id: note.id,
+    title: note.title,
+    updatedAt: note.updatedAt,
+    body: documentText(note.body),
+    note,
+  }));
+}
 
 export function noteLinks(note: NoteProjection): string[] {
   return [...note.body.matchAll(/\[\[([^\]]+)\]\]/g)].map((match) => match[1].trim()).filter(Boolean);

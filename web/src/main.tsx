@@ -87,7 +87,7 @@ import {
   THEME_OPTIONS,
   type ThemeName,
 } from "./theme";
-import { contextualNotes, graphEdges, searchNotes } from "./knowledge";
+import { contextualNotes, graphEdges, indexNotes, searchNotes } from "./knowledge";
 import { documentText, emptyNoteDocument, isStructuredNoteBody, parseNoteDocument, stringifyNoteDocument } from "./document";
 import type { Block } from "@blocknote/core";
 import "./styles.css";
@@ -321,10 +321,7 @@ function Workspace({
       }),
     [notes, pinned, sort],
   );
-  const searchableNotes = useMemo(
-    () => notes.map((note) => ({ ...note, body: documentText(note.body) })),
-    [notes],
-  );
+  const searchableNotes = useMemo(() => indexNotes(notes), [notes]);
   useEffect(() => {
     let cancelled = false;
     const urls: string[] = [];
@@ -353,11 +350,11 @@ function Workspace({
     };
   }, [attachmentsForNote, auth.authSecret, selected?.id]);
   const visibleNotes = useMemo(
-    () => searchNotes(searchableNotes, query),
+    () => searchNotes(searchableNotes, query).map((match) => match.note),
     [searchableNotes, query],
   );
   const relatedNotes = useMemo(
-    () => contextualNotes(searchableNotes, selectedNote ? { ...selectedNote, body: documentText(selectedNote.body) } : undefined),
+    () => contextualNotes(searchableNotes, selectedNote ? indexNotes([selectedNote])[0] : undefined).map((match) => match.note),
     [searchableNotes, selectedNote],
   );
   const links = useMemo(() => graphEdges(searchableNotes), [searchableNotes]);
