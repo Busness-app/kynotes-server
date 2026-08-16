@@ -14,6 +14,7 @@ type Props = {
 };
 
 export function BlockNoteEditor({ noteID, initialContent, legacyMarkdown, onChange, uploadFile, resolveFileUrl }: Props) {
+  const hydratedRef = useRef(false);
   const onChangeRef = useRef(onChange);
   const uploadRef = useRef(uploadFile);
   const resolveRef = useRef(resolveFileUrl);
@@ -27,14 +28,23 @@ export function BlockNoteEditor({ noteID, initialContent, legacyMarkdown, onChan
   }, [noteID]);
 
   useEffect(() => {
-    if (!legacyMarkdown) return;
-    const blocks = editor.tryParseMarkdownToBlocks(legacyMarkdown);
-    if (blocks.length) editor.replaceBlocks(editor.document, blocks);
+    if (legacyMarkdown) {
+      const blocks = editor.tryParseMarkdownToBlocks(legacyMarkdown);
+      if (blocks.length) editor.replaceBlocks(editor.document, blocks);
+    }
+    // BlockNote may report its initial/default document while the component
+    // is mounting. Do not treat that hydration event as a user edit.
+    hydratedRef.current = true;
   }, [editor, legacyMarkdown]);
 
   return (
     <div className="blocknote-editor">
-      <BlockNoteView editor={editor} onChange={(current) => onChangeRef.current(current.document)} />
+      <BlockNoteView
+        editor={editor}
+        onChange={(current) => {
+          if (hydratedRef.current) onChangeRef.current(current.document);
+        }}
+      />
     </div>
   );
 }
