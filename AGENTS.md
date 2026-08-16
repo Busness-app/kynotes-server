@@ -112,6 +112,11 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   is copied from the parent team and membership changes propagate to children.
 - `internal/storage/migrations/0011_sealed_share_links.sql` stores browser-sealed
   ciphertext separately from object-backed share links.
+- `internal/storage/migrations/0012_sso.sql` adds `sso_subject` to users for KySignOn
+  and OpenID Connect single sign-on integration.
+- `internal/sso` and `internal/httpapi` handle OpenID Connect PKCE authentication,
+  automated account provisioning, KySignOn system pairing (`POST /api/v1/admin/sso/pair`),
+  and HMAC-SHA256 verified directory synchronization webhooks (`POST /api/v1/sync/events`).
 - KyBackup owns backup/restore; cross-server workspace migration is deferred to
   v2.
 - `internal/web` embeds the production `web/dist` bundle into the server image;
