@@ -464,6 +464,25 @@ function Workspace({
     }, 15000);
     return () => window.clearInterval(timer);
   }, [selectedNote, dirty]);
+  useEffect(() => {
+    const flushDraft = () => {
+      const note = selectedNoteRef.current;
+      if (!note || !dirty) return;
+      // Background tabs may throttle timers. Persist the encrypted draft
+      // before the page is hidden, then let the normal queue drain finish it.
+      persistDraft(note);
+      void save(note, true);
+    };
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "hidden") flushDraft();
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    window.addEventListener("pagehide", flushDraft);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      window.removeEventListener("pagehide", flushDraft);
+    };
+  }, [dirty, selected?.id]);
   async function loadContainers() {
     try {
       const value = await containers();

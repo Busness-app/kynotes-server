@@ -19,6 +19,15 @@ describe("note document format", () => {
     expect(documentText(stringifyNoteDocument(document))).toBe("[diagram]");
   });
 
+  it("round-trips inline formatting marks", () => {
+    const document: PartialBlock[] = [{
+      type: "paragraph",
+      content: [{ type: "text", text: "Important", styles: { bold: true, italic: true } }],
+    }];
+    const serialized = stringifyNoteDocument(document);
+    expect(parseNoteDocument(serialized).document).toEqual(document);
+  });
+
   it("does not silently hide an unrecognized body", () => {
     expect(documentText("not Markdown")).toBe("not Markdown");
   });
