@@ -72,6 +72,7 @@ func EnsureBootstrapAdmin(db *sql.DB, c config.Config) error {
 		} else {
 			fmt.Printf("Initial admin account created. Credentials written to %s (read and delete this file).\n", passFile)
 		}
+		fmt.Printf("\n==================================================\n  KYNOTES FIRST-RUN ADMIN CREDENTIALS\n  Username: %s\n  Password: %s\n==================================================\n\n", username, password)
 	} else {
 		fmt.Printf("Initial admin account created for '%s' from BOOTSTRAP_ADMIN_PASS.\n", username)
 	}
