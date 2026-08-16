@@ -511,6 +511,14 @@ function Workspace({
     }
   }
   async function selectContainer(container: Container) {
+    const previousContainer = selected;
+    const previousNote = selectedNoteRef.current;
+    if (previousContainer && previousNote && previousContainer.id !== container.id && dirty) {
+      // Workspace navigation destroys the current editor. Finish its latest
+      // encrypted save before replacing the note list so the next load cannot
+      // fall back to an older plain document.
+      await save(previousNote, true);
+    }
     setSelected(container);
     setSelectedNote(null);
     setCommentsForNote([]);
@@ -1112,15 +1120,9 @@ function Workspace({
           </button>
         </div>
       </header>
-      {view !== "workspace" ? (
-        <SettingsView
-          admin={view === "admin"}
-          authSecret={auth.authSecret}
-          username={auth.username}
-          onBack={() => setView("workspace")}
-        />
-      ) : (
-        <div className="workspace">
+      <>
+        <div className={`workspace-view ${view !== "workspace" ? "workspace-view-hidden" : ""}`}>
+          <div className="workspace">
           <aside className="sidebar">
             <div className="section-label">PERSONAL</div>
             {personal.map((container) => (
@@ -1425,8 +1427,17 @@ function Workspace({
               </div>
             )}
           </section>
+          </div>
         </div>
-      )}
+        {view !== "workspace" && (
+          <SettingsView
+            admin={view === "admin"}
+            authSecret={auth.authSecret}
+            username={auth.username}
+            onBack={() => setView("workspace")}
+          />
+        )}
+      </>
       {error && (
         <button className="toast error" onClick={() => setError("")}>
           {error} ×

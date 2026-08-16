@@ -177,6 +177,7 @@ button, input, textarea, select { border-radius: 12px; corner-shape: squircle; }
 .context-link:hover { color: var(--ink-strong); }
 .format-toolbar button.active { color: var(--ink-strong); outline: 2px solid var(--accent); }
 .single-pane-editor { min-height: 360px; display: flex; }
+.workspace-view-hidden { display: none; }
 .blocknote-editor { width: 100%; min-height: 420px; color: var(--ink); }
 .blocknote-editor .bn-container { min-height: 420px; border: 1px solid var(--line); border-radius: 16px; corner-shape: squircle; background: var(--panel); color: var(--ink); }
 .blocknote-editor .bn-editor { min-height: 380px; padding: 24px clamp(18px, 4vw, 42px); background: var(--panel); color: var(--ink); }
