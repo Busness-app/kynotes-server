@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { contextualNotes, graphEdges, indexNotes, noteTags, noteTasks, searchNotes } from "./knowledge";
+import { contextualNotes, graphEdges, indexNotes, noteTags, noteTasks, openTaskNotes, searchNotes } from "./knowledge";
 import { isStructuredNoteBody, stringifyNoteDocument } from "./document";
 
 const notes = [
@@ -33,5 +33,19 @@ describe("local knowledge projections", () => {
     // Reopening a note from the list must not feed the editor flattened text.
     expect(match.note.body).toBe(body);
     expect(isStructuredNoteBody(match.note.body)).toBe(true);
+    expect(noteTasks(index[0])).toEqual([]);
+  });
+
+  it("finds open BlockNote checklist items without exposing them to the server", () => {
+    const body = stringifyNoteDocument([
+      { type: "checkListItem", props: { checked: false }, content: "Ship the inbox" },
+      { type: "checkListItem", props: { checked: true }, content: "Already done" },
+    ]);
+    expect(noteTasks({ id: "c", title: "Queue", body, updatedAt: "" })).toEqual(["Ship the inbox"]);
+    expect(noteTasks(indexNotes([{ id: "c", title: "Queue", body, updatedAt: "" }])[0])).toEqual(["Ship the inbox"]);
+  });
+
+  it("keeps only notes with open tasks in the work queue", () => {
+    expect(openTaskNotes(notes).map((note) => note.id)).toEqual(["a"]);
   });
 });

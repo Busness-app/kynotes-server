@@ -81,6 +81,11 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   server, users, teams, and audit sections. The save queue is kept in the
   existing IndexedDB vault, drains on startup/online recovery and every 15
   seconds, and uses a ciphertext-only BroadcastChannel hint for other tabs.
+- `web/` creates the encrypted personal inbox when needed and exposes a
+  client-only work queue for open checklist items across personal workspaces;
+  task parsing remains browser-side because the server never sees plaintext.
+- `web/` shows server commit receipts as a short `Last Committed Ns ago` toast
+  that expires after 15 seconds.
 - `web/` treats a restored HTTP session as locked until the user unlocks the
   browser again; note creation also attempts its first server save immediately
   before relying on autosave or the encrypted retry queue.

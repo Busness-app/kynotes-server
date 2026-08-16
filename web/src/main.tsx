@@ -86,10 +86,14 @@ import {
   THEME_OPTIONS,
   type ThemeName,
 } from "./theme";
-import { contextualNotes, graphEdges, indexNotes, searchNotes } from "./knowledge";
+import { contextualNotes, graphEdges, indexNotes, noteTasks, openTaskNotes, searchNotes } from "./knowledge";
 import { documentText, emptyNoteDocument, isStructuredNoteBody, parseNoteDocument, stringifyNoteDocument } from "./document";
+import { commitToastLabel, commitToastVisible, COMMIT_TOAST_DURATION_MS } from "./commitToast";
+import { hasPersonalInbox, INBOX_KIND } from "./inbox";
 import type { Block } from "@blocknote/core";
 import "./styles.css";
+
+const MAX_CHANGE_PAGES = 100;
 
 const BlockNoteEditor = lazy(() => import("./BlockNoteEditor").then((module) => ({ default: module.BlockNoteEditor })));
 
@@ -106,6 +110,7 @@ type PlainComment = {
   createdAt: string;
 };
 type PlainAttachment = { id: string; name: string; type: string; size: number };
+type QueueEntry = { note: Note; container: Container };
 
 function App() {
   const [auth, setAuth] = useState<AuthState | null>(null);
@@ -264,6 +269,7 @@ function Workspace({
   const [names, setNames] = useState<Record<string, string>>({});
   const [selected, setSelected] = useState<Container | null>(null);
   const [notes, setNotes] = useState<Note[]>([]);
+  const [queueEntries, setQueueEntries] = useState<QueueEntry[]>([]);
   const [selectedNote, setSelectedNote] = useState<Note | null>(null);
   const [commentsForNote, setCommentsForNote] = useState<PlainComment[]>([]);
   const [attachmentsForNote, setAttachmentsForNote] = useState<PlainAttachment[]>([]);
@@ -272,7 +278,6 @@ function Workspace({
   const cancelledUploads = useRef(new Set<string>());
   const [commentText, setCommentText] = useState("");
   const [commentSection, setCommentSection] = useState("");
-  const [commitReceipt, setCommitReceipt] = useState("");
   const [conflicted, setConflicted] = useState<Set<string>>(new Set());
   const [lastSavedAt, setLastSavedAt] = useState("");
   const [syncStatus, setSyncStatus] = useState<"saved" | "local" | "syncing" | "attention">("saved");
@@ -292,8 +297,11 @@ function Workspace({
   const [view, setView] = useState<"workspace" | "settings" | "admin">(
     "workspace",
   );
+  const [queueMode, setQueueMode] = useState(false);
   const [sort, setSort] = useState<"updated" | "title">("updated");
   const [query, setQuery] = useState("");
+  const [commitToastAt, setCommitToastAt] = useState<number | null>(null);
+  const [, setCommitToastTick] = useState(0);
   const pinsKey = `kynotes-pins-${auth.user.id}`;
   const pinned = useMemo(() => {
     try {
@@ -305,7 +313,7 @@ function Workspace({
     }
   }, [pinsKey, notes]);
   const nameOf = (container: Container) =>
-    names[container.id] || `Workspace ${container.id.slice(4, 10)}`;
+    names[container.id] || (container.kind === INBOX_KIND ? "Inbox" : `Workspace ${container.id.slice(4, 10)}`);
   const orderedNotes = useMemo(
     () =>
       [...notes].sort((a, b) => {
@@ -345,10 +353,19 @@ function Workspace({
       setAttachmentSources({});
     };
   }, [attachmentsForNote, auth.authSecret, selected?.id]);
-  const visibleNotes = useMemo(
-    () => searchNotes(searchableNotes, query).map((match) => match.note),
-    [searchableNotes, query],
-  );
+  const visibleNotes = useMemo(() => {
+    const filtered = searchNotes(searchableNotes, query);
+    return filtered.map((match) => match.note);
+  }, [searchableNotes, query]);
+  const visibleQueueEntries = useMemo(() => {
+    const indexed = indexNotes(queueEntries.map((entry) => entry.note));
+    const matches = openTaskNotes(searchNotes(indexed, query));
+    const entriesByID = new Map(queueEntries.map((entry) => [entry.note.id, entry]));
+    return matches.map((match) => entriesByID.get(match.note.id)).filter((entry): entry is QueueEntry => Boolean(entry));
+  }, [queueEntries, query]);
+  const listEntries = queueMode
+    ? visibleQueueEntries
+    : visibleNotes.map((note) => ({ note, container: selected })).filter((entry): entry is QueueEntry => Boolean(entry.container));
   const relatedNotes = useMemo(
     () => contextualNotes(searchableNotes, selectedNote ? indexNotes([selectedNote])[0] : undefined).map((match) => match.note),
     [searchableNotes, selectedNote],
@@ -378,8 +395,11 @@ function Workspace({
     };
   }, []);
   useEffect(() => {
-    if (commitReceipt) setError(`Server commit receipt: ${commitReceipt}`);
-  }, [commitReceipt]);
+    if (!commitToastAt) return;
+    const timer = window.setInterval(() => setCommitToastTick((value) => value + 1), 1000);
+    const expiry = window.setTimeout(() => setCommitToastAt(null), COMMIT_TOAST_DURATION_MS);
+    return () => { window.clearInterval(timer); window.clearTimeout(expiry); };
+  }, [commitToastAt]);
   useEffect(() => {
     if (!selected) return;
     void updatePresence(
@@ -473,8 +493,14 @@ function Workspace({
   async function loadContainers() {
     try {
       const value = await containers();
+      let loaded = value;
+      if (!hasPersonalInbox(value)) {
+        // The well-known kind supplies the label, so no second metadata write is needed.
+        const container = await createContainer(INBOX_KIND);
+        loaded = [...value, container];
+      }
       const nextNames: Record<string, string> = {};
-      for (const item of value) {
+      for (const item of loaded) {
         try {
           if (item.metaCiphertext)
             nextNames[item.id] = (
@@ -489,33 +515,20 @@ function Workspace({
         }
       }
       setNames(nextNames);
-      setItems(value);
-      if (value[0]) await selectContainer(value[0]);
+      setItems(loaded);
+      if (loaded[0]) await selectContainer(loaded[0]);
     } catch (error) {
       setError(
         error instanceof Error ? error.message : "Unable to load workspaces",
       );
     }
   }
-  async function selectContainer(container: Container) {
-    const previousContainer = selected;
-    const previousNote = selectedNoteRef.current;
-    if (previousContainer && previousNote && previousContainer.id !== container.id && dirty) {
-      // Workspace navigation destroys the current editor. Finish its latest
-      // encrypted save before replacing the note list so the next load cannot
-      // fall back to an older plain document.
-      await save(previousNote, true);
-    }
-    setSelected(container);
-    setSelectedNote(null);
-    setCommentsForNote([]);
-    setAttachmentsForNote([]);
-    try {
-      const result = await changes(container.id);
-      const loaded: Note[] = [];
-      for (const change of result.changes.filter(
-        (entry) => entry.kind === "object" && !entry.deleted,
-      )) {
+  async function readContainerNotes(container: Container): Promise<Note[]> {
+    const loaded: Note[] = [];
+    let since = 0;
+    for (let page = 0; page < MAX_CHANGE_PAGES; page += 1) {
+      const result = await changes(container.id, since);
+      for (const change of result.changes.filter((entry) => entry.kind === "object" && !entry.deleted)) {
         try {
           const object = await readObject(change.id);
           const cached = await getNote(change.id);
@@ -527,37 +540,45 @@ function Workspace({
             id: change.id,
             ...payload,
             body: payload.body,
-            version:
-              cached && cached.version >= object.version
-                ? cached.version
-                : object.version,
-            updatedAt:
-              cached && cached.version >= object.version
-                ? cached.updatedAt
-                : new Date().toISOString(),
+            version: cached && cached.version >= object.version ? cached.version : object.version,
+            updatedAt: cached && cached.version >= object.version ? cached.updatedAt : new Date().toISOString(),
           });
         } catch {
           const cached = await getNote(change.id);
           if (cached) {
             try {
-              const payload = await decryptNote(
-                auth.authSecret,
-                container.id,
-                cached.payload,
-              );
-              loaded.push({
-                id: change.id,
-                ...payload,
-                body: payload.body,
-                version: cached.version,
-                updatedAt: cached.updatedAt,
-              });
+              const payload = await decryptNote(auth.authSecret, container.id, cached.payload);
+              loaded.push({ id: change.id, ...payload, body: payload.body, version: cached.version, updatedAt: cached.updatedAt });
             } catch {
               /* Ignore an invalid local draft. */
             }
           }
         }
       }
+      if (!result.hasMore) break;
+      const next = Number(result.nextCursor);
+      if (!Number.isSafeInteger(next) || next <= since) break;
+      since = next;
+    }
+    return loaded;
+  }
+  async function selectContainer(container: Container): Promise<Note[]> {
+    const previousContainer = selected;
+    const previousNote = selectedNoteRef.current;
+    if (previousContainer && previousNote && previousContainer.id !== container.id && dirty) {
+      // Workspace navigation destroys the current editor. Finish its latest
+      // encrypted save before replacing the note list so the next load cannot
+      // fall back to an older plain document.
+      await save(previousNote, true);
+    }
+    setSelected(container);
+    setQueueMode(false);
+    setSelectedNote(null);
+    setCommentsForNote([]);
+    setAttachmentsForNote([]);
+    let loaded: Note[] = [];
+    try {
+      loaded = await readContainerNotes(container);
       setNotes(loaded);
       if (container.kind === "team")
         setMembersForTeam(await members(container.id));
@@ -567,8 +588,38 @@ function Workspace({
         error instanceof Error ? error.message : "Unable to load workspace",
       );
     }
+    return loaded;
   }
-  async function selectNote(note: Note) {
+  async function openWorkQueue() {
+    setView("workspace");
+    setQueueMode(true);
+    setBusy(true);
+    try {
+      const personalContainers = items.filter((item) => item.kind !== "team" && !item.teamId);
+      const results = await Promise.allSettled(personalContainers.map(async (container) => ({
+        container,
+        notes: await readContainerNotes(container),
+      })));
+      if (results.some((result) => result.status === "rejected")) {
+        setError("Some personal workspaces could not be loaded; the work queue may be incomplete.");
+      }
+      const entries = results.flatMap((result) => result.status === "fulfilled"
+        ? result.value.notes.map((note) => ({ note, container: result.value.container }))
+        : []);
+      setQueueEntries(entries);
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "Unable to load work queue");
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function selectQueueNote(entry: QueueEntry) {
+    const loaded = await selectContainer(entry.container);
+    const note = loaded.find((candidate) => candidate.id === entry.note.id);
+    if (note) await selectNote(note, entry.container.id);
+    setQueueMode(true);
+  }
+  async function selectNote(note: Note, containerID = selected?.id) {
     setSelectedNote(note);
     setDirty(false);
     setLastSavedAt(note.version > 0 ? note.updatedAt : "");
@@ -580,7 +631,7 @@ function Workspace({
         try {
           const decrypted = await decryptComment(
             auth.authSecret,
-            selected!.id,
+            containerID ?? "",
             fromBase64(item.bodyCiphertext),
           );
           decoded.push({
@@ -603,7 +654,7 @@ function Workspace({
       const decoded: PlainAttachment[] = [];
       for (const item of remote) {
         try {
-          const metadata = await decryptAttachmentMetadata(auth.authSecret, selected!.id, fromBase64(item.metadataCiphertext));
+          const metadata = await decryptAttachmentMetadata(auth.authSecret, containerID ?? "", fromBase64(item.metadataCiphertext));
           decoded.push({ id: item.id, ...metadata });
         } catch { /* Ignore metadata encrypted for another key. */ }
       }
@@ -758,7 +809,7 @@ function Workspace({
           selected.keyGeneration,
         );
         await clearQueuedSave(note.id);
-        setCommitReceipt(result.commitReceipt ?? "");
+        setCommitToastAt(Date.now());
           setConflicted((value) => { const next = new Set(value); next.delete(note.id); return next; });
           setSyncStatus("saved");
         const saved = { ...note, version: result.version, updatedAt: savedAt };
@@ -771,6 +822,10 @@ function Workspace({
               : entry,
           ),
         );
+        setQueueEntries((entries) => entries.flatMap((entry) => {
+          if (entry.note.id !== saved.id) return [entry];
+          return openTaskNotes(indexNotes([saved])).length ? [{ ...entry, note: saved }] : [];
+        }));
         // An edit may have landed while the request was in flight. Never let
         // an older response replace that newer document in memory.
         if (
@@ -1072,6 +1127,8 @@ function Workspace({
     }
   }
   const personal = items.filter((item) => item.kind !== "team" && !item.teamId);
+  const inbox = personal.find((item) => item.kind === INBOX_KIND);
+  const personalWorkspaces = personal.filter((item) => item.kind !== INBOX_KIND);
   const teams = items.filter((item) => item.kind === "team");
   const teamWorkspaces = (teamID: string) => items.filter((item) => item.teamId === teamID);
   return (
@@ -1111,8 +1168,26 @@ function Workspace({
         <div className={`workspace-view ${view !== "workspace" ? "workspace-view-hidden" : ""}`}>
           <div className="workspace">
           <aside className="sidebar">
+            <div className="section-label">FOCUS</div>
+            <button
+              className={`nav-item ${queueMode ? "selected" : ""}`}
+              disabled={busy}
+              onClick={() => void openWorkQueue()}
+            >
+              <span className="nav-icon">✓</span>
+              <span>Work queue</span>
+            </button>
             <div className="section-label">PERSONAL</div>
-            {personal.map((container) => (
+            {inbox && (
+              <button
+                className={`nav-item ${selected?.id === inbox.id && !queueMode ? "selected" : ""}`}
+                onClick={() => void selectContainer(inbox)}
+              >
+                <span className="nav-icon">✦</span>
+                <span>Inbox</span>
+              </button>
+            )}
+            {personalWorkspaces.map((container) => (
               <button
                 className={`nav-item ${selected?.id === container.id ? "selected" : ""}`}
                 key={container.id}
@@ -1201,9 +1276,9 @@ function Workspace({
                 <div className="section-label">
                   {selected ? nameOf(selected) : "WORKSPACE"}
                 </div>
-                <h2 className="workspace-title">{selected ? nameOf(selected) : "Select a workspace"}</h2>
-                {selected && <div className="workspace-kind">{selected.kind === "team" ? "Team workspace" : "Personal workspace"}</div>}
-                {selected && <h3 className="notes-heading">Notes</h3>}
+                <h2 className="workspace-title">{queueMode ? "Work queue" : selected ? nameOf(selected) : "Select a workspace"}</h2>
+                {queueMode ? <div className="workspace-kind">Open tasks across personal workspaces</div> : selected && <div className="workspace-kind">{selected.kind === INBOX_KIND ? "Personal inbox" : selected.kind === "team" ? "Team workspace" : "Personal workspace"}</div>}
+                {selected && <h3 className="notes-heading">{queueMode ? `${listEntries.length} task note${listEntries.length === 1 ? "" : "s"}` : "Notes"}</h3>}
               </div>
               <div className="list-actions">
                 <input
@@ -1231,18 +1306,18 @@ function Workspace({
                 </button>
               </div>
             </div>
-            {visibleNotes.map((note) => (
+            {listEntries.map(({ note, container }) => (
               <div
                 className={`note-row-wrap ${selectedNote?.id === note.id ? "selected" : ""}`}
                 key={note.id}
               >
                 <button
                   className="note-row"
-                  onClick={() => void selectNote(note)}
+                  onClick={() => void (queueMode ? selectQueueNote({ note, container }) : selectNote(note))}
                 >
                   <strong>{note.title || "Untitled note"}</strong>
                   <span>
-                    {documentText(note.body).slice(0, 64) ||
+                    {(queueMode ? noteTasks(indexNotes([note])[0]).slice(0, 2).join(" · ") : documentText(note.body).slice(0, 64)) ||
                       "Empty note"}
                   </span>
                 </button>
@@ -1255,11 +1330,11 @@ function Workspace({
                 </button>
               </div>
             ))}
-            {selected && notes.length === 0 && (
+            {selected && listEntries.length === 0 && (
               <div className="empty-list">
-                No notes yet.
+                {queueMode ? "No open tasks here." : "No notes yet."}
                 <br />
-                Create the first one.
+                {queueMode ? "Tasks from note checklists appear here." : "Create the first one."}
               </div>
             )}
             {relatedNotes.length > 0 && (
@@ -1425,6 +1500,11 @@ function Workspace({
           />
         )}
       </>
+      {commitToastAt && commitToastVisible(commitToastAt) && (
+        <button className="toast commit-toast" onClick={() => setCommitToastAt(null)}>
+          {commitToastLabel(commitToastAt)} ×
+        </button>
+      )}
       {error && (
         <button className="toast error" onClick={() => setError("")}>
           {error} ×
