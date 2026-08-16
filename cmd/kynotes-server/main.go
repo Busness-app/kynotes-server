@@ -58,6 +58,24 @@ func main() {
 		}
 		return
 	}
+	if len(os.Args) > 1 && os.Args[1] == "bootstrap-admin" {
+		c, e := config.Load(commandConfig(os.Args[2:]))
+		if e != nil {
+			fmt.Fprintln(os.Stderr, e)
+			os.Exit(2)
+		}
+		s, e := storage.Open(filepath.Join(c.DataDir, "kynotes.sqlite"))
+		if e != nil {
+			fmt.Fprintln(os.Stderr, e)
+			os.Exit(1)
+		}
+		defer s.Close()
+		if e := app.EnsureBootstrapAdmin(s.DB(), c); e != nil {
+			fmt.Fprintln(os.Stderr, e)
+			os.Exit(1)
+		}
+		return
+	}
 	if len(os.Args) > 1 && os.Args[1] == "user" {
 		if e := userCommand(os.Args[2:]); e != nil {
 			fmt.Fprintln(os.Stderr, e)
@@ -266,9 +284,9 @@ func checkCommand(kind string, args []string) error {
 }
 func userCommand(args []string) error {
 	if len(args) < 1 || args[0] != "add" {
-		return fmt.Errorf("usage: user add --username <name> [--admin]")
+		return fmt.Errorf("usage: user add --username <name> [--password <pass>] [--admin]")
 	}
-	var username string
+	var username, password string
 	admin := false
 	for i := 1; i < len(args); i++ {
 		switch args[i] {
@@ -278,6 +296,12 @@ func userCommand(args []string) error {
 			}
 			username = args[i+1]
 			i++
+		case "--password":
+			if i+1 >= len(args) {
+				return fmt.Errorf("--password requires a value")
+			}
+			password = args[i+1]
+			i++
 		case "--admin":
 			admin = true
 		}
@@ -285,29 +309,49 @@ func userCommand(args []string) error {
 	if strings.TrimSpace(username) == "" {
 		return fmt.Errorf("username required")
 	}
-	var in struct {
-		AuthSecret   string `json:"authSecret"`
-		LoginSalt    string `json:"loginSalt"`
-		Iterations   int    `json:"iterations"`
-		RecoveryHash string `json:"recoveryHash"`
-	}
-	b, e := io.ReadAll(os.Stdin)
-	if e != nil {
-		return e
-	}
-	if json.Unmarshal(b, &in) != nil || len(in.AuthSecret) != 64 || in.LoginSalt == "" {
-		return fmt.Errorf("stdin must contain derived authSecret and loginSalt")
-	}
 	c, e := config.Load(commandConfig(args))
 	if e != nil {
 		return e
 	}
-	s, e := storage.Open(c.DataDir + "/kynotes.sqlite")
+	s, e := storage.Open(filepath.Join(c.DataDir, "kynotes.sqlite"))
 	if e != nil {
 		return e
 	}
 	defer s.Close()
-	hash, e := auth.HashAuthSecret(in.AuthSecret)
+
+	var authSecret, loginSalt string
+	iterations := 600000
+	var recoveryHash string
+
+	if password != "" {
+		loginSalt = auth.SyntheticLoginSalt(c.Secrets.ServerSaltKey, username)
+		authSecret, e = auth.DeriveAuthSecret(password, loginSalt, iterations)
+		if e != nil {
+			return e
+		}
+	} else {
+		var in struct {
+			AuthSecret   string `json:"authSecret"`
+			LoginSalt    string `json:"loginSalt"`
+			Iterations   int    `json:"iterations"`
+			RecoveryHash string `json:"recoveryHash"`
+		}
+		b, e := io.ReadAll(os.Stdin)
+		if e != nil || len(b) == 0 {
+			return fmt.Errorf("either --password must be supplied or stdin must contain JSON {authSecret, loginSalt}")
+		}
+		if json.Unmarshal(b, &in) != nil || len(in.AuthSecret) != 64 || in.LoginSalt == "" {
+			return fmt.Errorf("stdin must contain derived authSecret and loginSalt")
+		}
+		authSecret = in.AuthSecret
+		loginSalt = in.LoginSalt
+		if in.Iterations > 0 {
+			iterations = in.Iterations
+		}
+		recoveryHash = in.RecoveryHash
+	}
+
+	hash, e := auth.HashAuthSecret(authSecret)
 	if e != nil {
 		return e
 	}
@@ -320,6 +364,6 @@ func userCommand(args []string) error {
 		role = "admin"
 	}
 	now := time.Now().UTC().Format(time.RFC3339)
-	_, e = s.DB().Exec(`INSERT INTO users(id,username,auth_secret_hash,login_salt,login_iterations,recovery_hash,role,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)`, id, strings.ToLower(username), hash, in.LoginSalt, in.Iterations, in.RecoveryHash, role, now, now)
+	_, e = s.DB().Exec(`INSERT INTO users(id,username,auth_secret_hash,login_salt,login_iterations,recovery_hash,role,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?,'active',?,?)`, id, strings.ToLower(username), hash, loginSalt, iterations, recoveryHash, role, now, now)
 	return e
 }

@@ -4,17 +4,19 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
+	"net/http"
+	"os"
+	"path/filepath"
+	"strconv"
+	"time"
+
 	"github.com/yoshiofthewire/kynotes-server/internal/blobstore"
 	"github.com/yoshiofthewire/kynotes-server/internal/config"
 	"github.com/yoshiofthewire/kynotes-server/internal/health"
 	"github.com/yoshiofthewire/kynotes-server/internal/httpapi"
 	"github.com/yoshiofthewire/kynotes-server/internal/logging"
 	"github.com/yoshiofthewire/kynotes-server/internal/storage"
-	"net/http"
-	"os"
-	"path/filepath"
-	"strconv"
-	"time"
 )
 
 func Serve(ctx context.Context, c config.Config, log *logging.Logger) error {
@@ -34,6 +36,9 @@ func Serve(ctx context.Context, c config.Config, log *logging.Logger) error {
 		return err
 	}
 	defer store.Close()
+	if err := EnsureBootstrapAdmin(store.DB(), c); err != nil {
+		return fmt.Errorf("bootstrap admin failed: %w", err)
+	}
 	blobs, err := blobstore.New(c.DataDir)
 	if err != nil {
 		return err

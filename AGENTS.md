@@ -53,8 +53,9 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   content-addressed without creating an attachment row. Admin settings/users,
   audit metadata, team membership, and encrypted comment reads/writes are
   session- and role-gated here.
-- `internal/app` owns the `.kynotes.lock` data-directory lock; maintenance
-  backup refuses to copy a live data directory and restore runs an integrity
+- `internal/app` owns the `.kynotes.lock` data-directory lock and automatic first-run
+  admin bootstrap (`first-run-password.txt` or `BOOTSTRAP_ADMIN_PASS`/`BOOTSTRAP_ADMIN_USER`);
+  maintenance backup refuses to copy a live data directory and restore runs an integrity
   check after replacement.
 - `internal/storage/migrations/0008_frozen_contract_columns.sql` exposes the
   frozen audit and idempotency-key schema on databases created by the earlier
