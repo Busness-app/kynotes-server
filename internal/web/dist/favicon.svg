@@ -1,4 +1,11 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-  <rect width="64" height="64" rx="14" fill="#25251f"/>
-  <path d="M18 13h8v15l13-15h10L35 30l15 21H40L28 34l-2 2v15h-8z" fill="#f8e8ba"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <rect width="64" height="64" rx="14" fill="#0d0f14"/>
+  <rect x="1" y="1" width="62" height="62" rx="13" stroke="#4deeea" stroke-opacity="0.3" stroke-width="1.5"/>
+  <!-- Document / Note body -->
+  <path d="M18 12 H38 L48 22 V50 C48 51.1 47.1 52 46 52 H18 C16.9 52 16 51.1 16 50 V14 C16 12.9 16.9 12 18 12 Z" fill="#121820" stroke="#4deeea" stroke-width="2.5" stroke-linejoin="round"/>
+  <!-- Folded corner -->
+  <path d="M38 12 V22 H48" fill="none" stroke="#4deeea" stroke-width="2.5" stroke-linejoin="round"/>
+  <!-- Note text lines & security dot -->
+  <path d="M23 26 H33 M23 33 H41 M23 40 H37 M23 47 H31" stroke="#4deeea" stroke-width="2.2" stroke-linecap="round"/>
+  <circle cx="41" cy="47" r="2" fill="#4deeea"/>
 </svg>
