@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/yoshiofthewire/kynotes-server/internal/auth"
 	"github.com/yoshiofthewire/kynotes-server/internal/ids"
+	"github.com/yoshiofthewire/kynotes-server/internal/sso"
 )
 
 var supportedThemes = map[string]bool{"Dark Matter": true, "Light Matter": true, "Tropics": true, "Tropic Night": true, "Ocean": true, "Coffee": true, "White Cliffs": true, "Cyber Punk": true, "Neon Purple": true, "Space": true, "Sky": true, "Forest": true, "Sun": true, "Patina Ky": true, "Polished Ky": true}
@@ -26,7 +28,7 @@ func recordAudit(db *sql.DB, actor, event, container, object, requestID string) 
 
 // AdminRoutes exposes metadata-only administration. It never returns secrets,
 // ciphertext, request bodies, or raw process logs.
-func AdminRoutes(mux *http.ServeMux, db *sql.DB) {
+func AdminRoutes(mux *http.ServeMux, db *sql.DB, ssoStore *sso.Store) {
 	mux.Handle("POST /api/v1/admin/teams", auth.RequireAdmin(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if auth.CheckCSRF(r) != nil {
 			WriteError(w, r, 403, "csrf_failed", "csrf validation failed")
@@ -281,4 +283,81 @@ func AdminRoutes(mux *http.ServeMux, db *sql.DB) {
 		}
 		writeJSON(w, out)
 	})))
+	if ssoStore != nil {
+		mux.Handle("GET /api/v1/admin/sso", auth.RequireAdmin(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			settings := ssoStore.Load()
+			writeJSON(w, settings)
+		})))
+		mux.Handle("POST /api/v1/admin/sso", auth.RequireAdmin(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if auth.CheckCSRF(r) != nil {
+				WriteError(w, r, 403, "csrf_failed", "csrf validation failed")
+				return
+			}
+			var in sso.SSOSettings
+			if json.NewDecoder(r.Body).Decode(&in) != nil {
+				WriteError(w, r, 400, "invalid_request", "invalid request")
+				return
+			}
+			if err := ssoStore.Save(in); err != nil {
+				WriteError(w, r, 500, "internal", "failed to save SSO settings")
+				return
+			}
+			s, _ := auth.SessionFromContext(r)
+			recordAudit(db, s.UserID, "admin.sso_update", "", "", r.Header.Get("X-Request-Id"))
+			writeJSON(w, in)
+		})))
+		mux.Handle("POST /api/v1/admin/sso/pair", auth.RequireAdmin(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if auth.CheckCSRF(r) != nil {
+				WriteError(w, r, 403, "csrf_failed", "csrf validation failed")
+				return
+			}
+			var in struct {
+				IssuerURL    string `json:"issuerUrl"`
+				PairingToken string `json:"pairingToken"`
+				CallbackURL  string `json:"callbackUrl,omitempty"`
+			}
+			if json.NewDecoder(r.Body).Decode(&in) != nil || in.IssuerURL == "" || in.PairingToken == "" {
+				WriteError(w, r, 400, "invalid_request", "issuerUrl and pairingToken are required")
+				return
+			}
+
+			callbackURL := in.CallbackURL
+			if callbackURL == "" {
+				scheme := "http"
+				if isRequestSecure(r) {
+					scheme = "https"
+				}
+				callbackURL = fmt.Sprintf("%s://%s/api/v1/sync/events", scheme, requestHost(r))
+			}
+
+			resp, err := sso.PairWithKySignOn(r.Context(), in.IssuerURL, in.PairingToken, callbackURL)
+			if err != nil {
+				WriteError(w, r, http.StatusBadRequest, "pairing_failed", err.Error())
+				return
+			}
+
+			newSettings := sso.SSOSettings{
+				Enabled:       true,
+				IssuerURL:     strings.TrimRight(in.IssuerURL, "/"),
+				ClientID:      "kynotes",
+				ClientSecret:  "",
+				RedirectURI:   "",
+				AutoProvision: true,
+				HMACSecret:    resp.HMACSecret,
+			}
+
+			if err := ssoStore.Save(newSettings); err != nil {
+				WriteError(w, r, 500, "internal", "failed to save paired SSO settings")
+				return
+			}
+
+			s, _ := auth.SessionFromContext(r)
+			recordAudit(db, s.UserID, "admin.sso_pair", "", resp.SystemID, r.Header.Get("X-Request-Id"))
+			writeJSON(w, map[string]any{
+				"success":  true,
+				"systemId": resp.SystemID,
+				"settings": newSettings,
+			})
+		})))
+	}
 }

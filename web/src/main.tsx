@@ -89,7 +89,6 @@ import {
 import { contextualNotes, graphEdges, indexNotes, noteTasks, openTaskNotes, searchNotes } from "./knowledge";
 import { documentText, emptyNoteDocument, isStructuredNoteBody, parseNoteDocument, stringifyNoteDocument } from "./document";
 import { commitToastLabel, commitToastVisible, COMMIT_TOAST_DURATION_MS } from "./commitToast";
-import { hasPersonalInbox, INBOX_KIND } from "./inbox";
 import type { Block } from "@blocknote/core";
 import "./styles.css";
 
@@ -313,7 +312,7 @@ function Workspace({
     }
   }, [pinsKey, notes]);
   const nameOf = (container: Container) =>
-    names[container.id] || (container.kind === INBOX_KIND ? "Inbox" : `Workspace ${container.id.slice(4, 10)}`);
+    names[container.id] || `Workspace ${container.id.slice(4, 10)}`;
   const orderedNotes = useMemo(
     () =>
       [...notes].sort((a, b) => {
@@ -493,12 +492,7 @@ function Workspace({
   async function loadContainers() {
     try {
       const value = await containers();
-      let loaded = value;
-      if (!hasPersonalInbox(value)) {
-        // The well-known kind supplies the label, so no second metadata write is needed.
-        const container = await createContainer(INBOX_KIND);
-        loaded = [...value, container];
-      }
+      const loaded = value;
       const nextNames: Record<string, string> = {};
       for (const item of loaded) {
         try {
@@ -1127,8 +1121,7 @@ function Workspace({
     }
   }
   const personal = items.filter((item) => item.kind !== "team" && !item.teamId);
-  const inbox = personal.find((item) => item.kind === INBOX_KIND);
-  const personalWorkspaces = personal.filter((item) => item.kind !== INBOX_KIND);
+  const personalWorkspaces = personal;
   const teams = items.filter((item) => item.kind === "team");
   const teamWorkspaces = (teamID: string) => items.filter((item) => item.teamId === teamID);
   return (
@@ -1178,15 +1171,6 @@ function Workspace({
               <span>Work queue</span>
             </button>
             <div className="section-label">PERSONAL</div>
-            {inbox && (
-              <button
-                className={`nav-item ${selected?.id === inbox.id && !queueMode ? "selected" : ""}`}
-                onClick={() => void selectContainer(inbox)}
-              >
-                <span className="nav-icon">✦</span>
-                <span>Inbox</span>
-              </button>
-            )}
             {personalWorkspaces.map((container) => (
               <button
                 className={`nav-item ${selected?.id === container.id ? "selected" : ""}`}
@@ -1277,7 +1261,7 @@ function Workspace({
                   {selected ? nameOf(selected) : "WORKSPACE"}
                 </div>
                 <h2 className="workspace-title">{queueMode ? "Work queue" : selected ? nameOf(selected) : "Select a workspace"}</h2>
-                {queueMode ? <div className="workspace-kind">Open tasks across personal workspaces</div> : selected && <div className="workspace-kind">{selected.kind === INBOX_KIND ? "Personal inbox" : selected.kind === "team" ? "Team workspace" : "Personal workspace"}</div>}
+                {queueMode ? <div className="workspace-kind">Open tasks across personal workspaces</div> : selected && <div className="workspace-kind">{selected.kind === "team" ? "Team workspace" : "Personal workspace"}</div>}
                 {selected && <h3 className="notes-heading">{queueMode ? `${listEntries.length} task note${listEntries.length === 1 ? "" : "s"}` : "Notes"}</h3>}
               </div>
               <div className="list-actions">

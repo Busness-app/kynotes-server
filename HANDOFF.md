@@ -20,7 +20,7 @@ Note bodies use encrypted `NotePayload` values. The body is a `kynotes.blocknote
 
 Workspace navigation flushes the dirty note before clearing the editor. Settings/Admin navigation keeps the editor mounted and hides it instead of remounting it.
 
-The browser creates a personal encrypted inbox container when one is absent. The Work queue loads open checklist items across personal workspaces; task parsing remains client-only. Successful server saves show a `Last Committed Ns ago` toast for at most 15 seconds.
+The Work queue loads open checklist items across personal workspaces; task parsing remains client-only. Inbox folders still require the planned folder-object client path. Successful server saves show a `Last Committed Ns ago` toast for at most 15 seconds.
 
 ## Formatting loss on reopen: root cause and fix
 
@@ -100,7 +100,6 @@ If styles exist at step 2 but not step 4, inspect server version/cache selection
 - `web/src/BlockNoteEditor.tsx`: lazy editor wrapper and hydration gate.
 - `web/src/document.ts`: BlockNote envelope, legacy conversion, and text projection.
 - `web/src/knowledge.ts`: search/context index and client-side open-task projection. `indexNotes` flattens bodies for search while retaining the structured source body.
-- `web/src/inbox.ts`: well-known personal inbox detection.
 - `web/src/commitToast.ts`: short server-commit toast timing and label.
 - `web/src/main.tsx`: loading, workspace navigation, save queue, autosave, attachments, and editor integration.
 - `web/src/storage.ts`: encrypted IndexedDB notes and retry queues.

@@ -3,13 +3,15 @@ package httpapi
 import (
 	"database/sql"
 	"encoding/json"
-	"github.com/yoshiofthewire/kynotes-server/internal/blobstore"
-	"github.com/yoshiofthewire/kynotes-server/internal/config"
-	"github.com/yoshiofthewire/kynotes-server/internal/logging"
-	"github.com/yoshiofthewire/kynotes-server/internal/web"
 	"net"
 	"net/http"
 	"strings"
+
+	"github.com/yoshiofthewire/kynotes-server/internal/blobstore"
+	"github.com/yoshiofthewire/kynotes-server/internal/config"
+	"github.com/yoshiofthewire/kynotes-server/internal/logging"
+	"github.com/yoshiofthewire/kynotes-server/internal/sso"
+	"github.com/yoshiofthewire/kynotes-server/internal/web"
 )
 
 func NewRouter(log *logging.Logger, max int64, ready func() bool, extras ...any) http.Handler {
@@ -28,8 +30,10 @@ func NewRouter(log *logging.Logger, max int64, ready func() bool, extras ...any)
 		}
 	}
 	if db != nil {
+		ssoStore := sso.NewStore(db)
 		AuthRoutes(mux, db, cfg)
-		AdminRoutes(mux, db)
+		SSORoutes(mux, db, cfg, ssoStore)
+		AdminRoutes(mux, db, ssoStore)
 		ContainerRoutes(mux, db)
 		SyncRoutes(mux, db)
 		CollabRoutes(mux, db)
