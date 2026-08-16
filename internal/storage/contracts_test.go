@@ -24,9 +24,13 @@ func openContract(t *testing.T) *Store {
 
 func TestOpenAppliesMigrationsOnce(t *testing.T) {
 	s := openContract(t)
+	entries, err := migrationFS.ReadDir("migrations")
+	if err != nil {
+		t.Fatal(err)
+	}
 	var n int
-	if err := s.DB().QueryRow(`SELECT COUNT(*) FROM schema_migrations`).Scan(&n); err != nil || n != 11 {
-		t.Fatalf("migration count=%d err=%v", n, err)
+	if err := s.DB().QueryRow(`SELECT COUNT(*) FROM schema_migrations`).Scan(&n); err != nil || n != len(entries) {
+		t.Fatalf("migration count=%d expected=%d err=%v", n, len(entries), err)
 	}
 }
 
