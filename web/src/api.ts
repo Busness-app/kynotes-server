@@ -1,4 +1,4 @@
-export type User = { id: string; role: string };
+export type User = { id: string; role: string; username?: string };
 export type Session = { user: User; expiresAt: string; hardExpiresAt: string };
 export type Container = { id: string; kind: string; teamId?: string; metaCiphertext: string; metaVersion: number; changeSeq: number; keyGeneration: number };
 export type Comment = { id: string; authorUserId: string; username: string; bodyCiphertext: string; keyGeneration: number; createdAt: string };

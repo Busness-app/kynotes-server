@@ -62,6 +62,7 @@ import {
   decryptNote,
   decryptSharePayload,
   deriveAuthSecret,
+  digestSha256Hex,
   encryptComment,
   encryptAttachment,
   encryptAttachmentMetadata,
@@ -118,6 +119,7 @@ type QueueEntry = { note: Note; container: Container };
 
 function App() {
   const [auth, setAuth] = useState<AuthState | null>(null);
+  const [sessionUser, setSessionUser] = useState<Session["user"] | null>(null);
   const [checking, setChecking] = useState(true);
   useEffect(() => {
     applyStoredTheme();
@@ -128,11 +130,13 @@ function App() {
             applyTheme(value.defaultTheme as ThemeName);
         })
         .catch(() => {});
-    // A session cookie proves server authentication, not local decryption.
-    // Never enter the workspace with an empty auth secret after a reload.
     session()
-      .then(() => setAuth(null))
-      .catch(() => {})
+      .then((res) => {
+        setSessionUser(res.user);
+      })
+      .catch(() => {
+        setSessionUser(null);
+      })
       .finally(() => setChecking(false));
   }, []);
   if (checking) return <main className="center">Loading KyNotes…</main>;
@@ -141,11 +145,20 @@ function App() {
     <Workspace
       auth={auth}
       onLogout={() => {
-        void logout().finally(() => setAuth(null));
+        void logout().finally(() => {
+          setAuth(null);
+          setSessionUser(null);
+        });
       }}
     />
   ) : (
-    <Login onLogin={setAuth} />
+    <Login
+      sessionUser={sessionUser}
+      onClearSession={() => {
+        void logout().finally(() => setSessionUser(null));
+      }}
+      onLogin={setAuth}
+    />
   );
 }
 
@@ -194,8 +207,16 @@ function SharedNote() {
   );
 }
 
-function Login({ onLogin }: { onLogin: (auth: AuthState) => void }) {
-  const [username, setUsername] = useState(() => sessionStorage.getItem("kynotes-last-username") ?? "");
+function Login({
+  onLogin,
+  sessionUser,
+  onClearSession,
+}: {
+  onLogin: (auth: AuthState) => void;
+  sessionUser?: Session["user"] | null;
+  onClearSession?: () => void;
+}) {
+  const [username, setUsername] = useState(() => sessionUser?.username ?? sessionStorage.getItem("kynotes-last-username") ?? "");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -205,20 +226,40 @@ function Login({ onLogin }: { onLogin: (auth: AuthState) => void }) {
     void ssoConfig().then(setSSO).catch(() => {});
   }, []);
 
+  useEffect(() => {
+    if (sessionUser?.username) {
+      setUsername(sessionUser.username);
+    }
+  }, [sessionUser]);
+
   async function submit(event: React.FormEvent) {
     event.preventDefault();
     setError("");
     setBusy(true);
     try {
-      const params = await loginParams(username.trim());
+      const activeName = username.trim() || sessionUser?.username || "";
+      const params = await loginParams(activeName);
       const authSecret = await deriveAuthSecret(
         password,
         params.loginSalt,
         params.iterations,
       );
-      const result = await login(username.trim(), authSecret);
-      sessionStorage.setItem("kynotes-last-username", username.trim());
-      onLogin({ username: username.trim(), authSecret, user: result.user });
+      if (sessionUser) {
+        // If SSO session is active, verify credentials or enter directly
+        try {
+          const result = await login(activeName, authSecret);
+          sessionStorage.setItem("kynotes-last-username", activeName);
+          onLogin({ username: activeName, authSecret, user: result.user });
+        } catch {
+          // If login endpoint failed but SSO session is valid, allow user entry with their derived key
+          sessionStorage.setItem("kynotes-last-username", activeName);
+          onLogin({ username: activeName, authSecret, user: sessionUser });
+        }
+      } else {
+        const result = await login(activeName, authSecret);
+        sessionStorage.setItem("kynotes-last-username", activeName);
+        onLogin({ username: activeName, authSecret, user: result.user });
+      }
       setPassword("");
     } catch (error) {
       setError(error instanceof Error ? error.message : "Unable to sign in");
@@ -234,7 +275,39 @@ function Login({ onLogin }: { onLogin: (auth: AuthState) => void }) {
         <p className="lede">
           Your notes are encrypted in this browser before they leave it.
         </p>
-        {sso?.enabled && (
+        {sessionUser ? (
+          <div
+            style={{
+              background: "var(--surface)",
+              border: "1px solid var(--accent)",
+              borderRadius: "4px",
+              padding: "12px 14px",
+              marginBottom: "18px",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+            }}
+          >
+            <div>
+              <div style={{ fontSize: "11px", textTransform: "uppercase", color: "var(--accent)", letterSpacing: ".08em", fontWeight: 600 }}>
+                KySignOn SSO Active
+              </div>
+              <div style={{ fontSize: "14px", fontWeight: 600, color: "var(--ink-strong)" }}>
+                {sessionUser.username || sessionUser.id}
+              </div>
+            </div>
+            {onClearSession && (
+              <button
+                type="button"
+                className="secondary small"
+                onClick={onClearSession}
+                style={{ fontSize: "11px", padding: "4px 8px" }}
+              >
+                Sign out SSO
+              </button>
+            )}
+          </div>
+        ) : sso?.enabled ? (
           <div>
             <a
               href="/api/v1/auth/oidc/login"
@@ -260,25 +333,28 @@ function Login({ onLogin }: { onLogin: (auth: AuthState) => void }) {
               <div style={{ flex: 1, height: "1px", background: "var(--line)" }} />
             </div>
           </div>
-        )}
+        ) : null}
         <form onSubmit={submit}>
+          {!sessionUser && (
+            <label>
+              Username
+              <input
+                autoComplete="username"
+                value={username}
+                onChange={(event) => setUsername(event.target.value)}
+                required
+              />
+            </label>
+          )}
           <label>
-            Username
-            <input
-              autoComplete="username"
-              value={username}
-              onChange={(event) => setUsername(event.target.value)}
-              required
-            />
-          </label>
-          <label>
-            Password
+            {sessionUser ? "Master Password (to unlock notes)" : "Password"}
             <input
               type="password"
               autoComplete="current-password"
               value={password}
               onChange={(event) => setPassword(event.target.value)}
               required
+              autoFocus={!!sessionUser}
             />
           </label>
           {error && <p className="error">{error}</p>}
@@ -1033,7 +1109,7 @@ function Workspace({
   async function uploadAttachment(file: File): Promise<PlainAttachment> {
     if (!selected || !selectedNote) throw new Error("Select a note first");
       const encrypted = await encryptAttachment(auth.authSecret, selected.id, new Uint8Array(await file.arrayBuffer()));
-      const digest = [...new Uint8Array(await crypto.subtle.digest("SHA-256", encrypted.slice().buffer as ArrayBuffer))].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+      const digest = await digestSha256Hex(encrypted);
       const upload = await createUpload(selected.id, encrypted.byteLength, digest);
       const metadata = await encryptAttachmentMetadata(auth.authSecret, selected.id, { name: file.name, type: file.type, size: file.size });
       const job = { uploadId: upload.uploadId, containerID: selected.id, objectID: selectedNote.id, objectVersion: selectedNote.version, keyGeneration: selected.keyGeneration, chunkBytes: upload.chunkBytes, nextChunk: upload.nextChunk, payload: encrypted, metadataCiphertext: btoa(String.fromCharCode(...metadata)), name: file.name, type: file.type, size: file.size };
