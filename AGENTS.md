@@ -74,6 +74,8 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   browser, and pending chunked uploads are persisted in the IndexedDB vault for
   reload recovery, with visible progress, retry, and cancel controls. Inline
   images use encrypted attachment payloads and attachment-backed image blocks.
+  The document loader converts the prior encrypted Tiptap JSON envelope to
+  BlockNote blocks on read so existing formatting survives editor remounts.
   The workspace surface
   labels personal workbooks explicitly, and the admin surface uses tabbed
   server, users, teams, and audit sections. The save queue is kept in the

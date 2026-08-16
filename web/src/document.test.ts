@@ -28,6 +28,23 @@ describe("note document format", () => {
     expect(parseNoteDocument(serialized).document).toEqual(document);
   });
 
+  it("converts the previous Tiptap document format without flattening it", () => {
+    const legacy = JSON.stringify({
+      format: "kynotes.tiptap.v1",
+      document: {
+        type: "doc",
+        content: [{
+          type: "heading",
+          attrs: { level: 2 },
+          content: [{ type: "text", text: "Important", marks: [{ type: "bold" }] }],
+        }],
+      },
+    });
+    const parsed = parseNoteDocument(legacy);
+    expect(parsed.document[0]).toMatchObject({ type: "heading", props: { level: 2 } });
+    expect(parsed.document[0].content).toEqual([{ type: "text", text: "Important", styles: { bold: true } }]);
+  });
+
   it("does not silently hide an unrecognized body", () => {
     expect(documentText("not Markdown")).toBe("not Markdown");
   });
