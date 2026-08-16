@@ -127,6 +127,11 @@ func loadSecrets(c *Config) error {
 	return nil
 }
 func applyEnv(c *Config) error {
+	if v := os.Getenv("KYNOTES_PORT"); v != "" {
+		c.Server.Bind = "0.0.0.0:" + v
+	} else if v := os.Getenv("PORT"); v != "" {
+		c.Server.Bind = "0.0.0.0:" + v
+	}
 	if v := os.Getenv("KYNOTES_SERVER_BIND"); v != "" {
 		c.Server.Bind = v
 	}
@@ -135,6 +140,10 @@ func applyEnv(c *Config) error {
 	}
 	if v := os.Getenv("KYNOTES_SERVER_BEHIND_PROXY"); v != "" {
 		c.Server.BehindProxy, _ = strconv.ParseBool(v)
+	}
+	if v := os.Getenv("TRUSTED_PROXY_CIDRS"); v != "" {
+		c.Server.TrustedProxies = strings.Split(v, ",")
+		c.Server.BehindProxy = true
 	}
 	if v := os.Getenv("KYNOTES_SERVER_TRUSTED_PROXIES"); v != "" {
 		c.Server.TrustedProxies = strings.Split(v, ",")
