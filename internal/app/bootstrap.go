@@ -1,12 +1,9 @@
 package app
 
 import (
-	"crypto/rand"
 	"database/sql"
-	"encoding/base64"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -15,7 +12,9 @@ import (
 	"github.com/yoshiofthewire/kynotes-server/internal/ids"
 )
 
-// EnsureBootstrapAdmin seeds initial admin credentials if no users exist in the database.
+// EnsureBootstrapAdmin seeds initial admin credentials if BOOTSTRAP_ADMIN_PASS is set and no users exist.
+// If BOOTSTRAP_ADMIN_PASS is not provided, the database remains unseeded and the web UI prompts
+// the user to create the primary administrator account on first visit via /api/setup.
 func EnsureBootstrapAdmin(db *sql.DB, c config.Config) error {
 	var count int
 	if err := db.QueryRow(`SELECT COUNT(*) FROM users`).Scan(&count); err != nil {
@@ -25,19 +24,15 @@ func EnsureBootstrapAdmin(db *sql.DB, c config.Config) error {
 		return nil
 	}
 
+	password := os.Getenv("BOOTSTRAP_ADMIN_PASS")
+	if password == "" {
+		// First-run setup will be performed interactively by the user in the web UI.
+		return nil
+	}
+
 	username := strings.TrimSpace(os.Getenv("BOOTSTRAP_ADMIN_USER"))
 	if username == "" {
 		username = "admin"
-	}
-
-	password := os.Getenv("BOOTSTRAP_ADMIN_PASS")
-	generated := password == ""
-	if generated {
-		b := make([]byte, 12)
-		if _, err := rand.Read(b); err != nil {
-			return fmt.Errorf("failed to generate bootstrap password: %w", err)
-		}
-		password = base64.RawURLEncoding.EncodeToString(b)
 	}
 
 	salt := auth.SyntheticLoginSalt(c.Secrets.ServerSaltKey, username)
@@ -64,18 +59,6 @@ func EnsureBootstrapAdmin(db *sql.DB, c config.Config) error {
 		return fmt.Errorf("failed to insert bootstrap admin user: %w", err)
 	}
 
-	if generated {
-		passFile := filepath.Join(c.DataDir, "first-run-password.txt")
-		content := fmt.Sprintf("User: %s\nPassword: %s\n", username, password)
-		if err := os.WriteFile(passFile, []byte(content), 0600); err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to write bootstrap password to %s: %v\n", passFile, err)
-		} else {
-			fmt.Printf("Initial admin account created. Credentials written to %s (read and delete this file).\n", passFile)
-		}
-		fmt.Printf("\n==================================================\n  KYNOTES FIRST-RUN ADMIN CREDENTIALS\n  Username: %s\n  Password: %s\n==================================================\n\n", username, password)
-	} else {
-		fmt.Printf("Initial admin account created for '%s' from BOOTSTRAP_ADMIN_PASS.\n", username)
-	}
-
+	fmt.Printf("Initial admin account created for '%s' from BOOTSTRAP_ADMIN_PASS.\n", username)
 	return nil
 }

@@ -30,6 +30,16 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   return response.json() as Promise<T>;
 }
 
+export async function checkSetup() {
+  return request<{ setupRequired: boolean }>("/api/v1/setup");
+}
+
+export async function setupInit(username: string, password: string, authSecret: string) {
+  return request<{ ok: boolean; user: User; expiresAt: string; hardExpiresAt: string }>("/api/v1/setup", {
+    method: "POST", body: JSON.stringify({ username, password, authSecret }),
+  });
+}
+
 export async function loginParams(username: string) {
   return request<{ loginSalt: string; iterations: number }>("/api/v1/auth/login-params", {
     method: "POST", body: JSON.stringify({ username }),

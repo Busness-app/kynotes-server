@@ -10,6 +10,7 @@ import {
   APIRequestError,
   changePassword,
   changes,
+  checkSetup,
   comments,
   containers,
   createAdminUser,
@@ -41,6 +42,7 @@ import {
   serverTheme,
   serviceStatus,
   session,
+  setupInit,
   ssoConfig,
   updateAdminUser,
   updateContainer,
@@ -216,13 +218,21 @@ function Login({
   sessionUser?: Session["user"] | null;
   onClearSession?: () => void;
 }) {
+  const [setupRequired, setSetupRequired] = useState(false);
   const [username, setUsername] = useState(() => sessionUser?.username ?? sessionStorage.getItem("kynotes-last-username") ?? "");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [sso, setSSO] = useState<{ enabled: boolean; issuerUrl: string; clientId: string } | null>(null);
 
   useEffect(() => {
+    void checkSetup().then((res) => {
+      if (res.setupRequired) {
+        setSetupRequired(true);
+        setUsername((prev) => prev || "admin");
+      }
+    }).catch(() => {});
     void ssoConfig().then(setSSO).catch(() => {});
   }, []);
 
@@ -231,6 +241,34 @@ function Login({
       setUsername(sessionUser.username);
     }
   }, [sessionUser]);
+
+  async function submitSetup(event: React.FormEvent) {
+    event.preventDefault();
+    setError("");
+    if (password !== confirmPassword) {
+      setError("Passwords do not match");
+      return;
+    }
+    if (password.length < 8) {
+      setError("Password must be at least 8 characters");
+      return;
+    }
+    setBusy(true);
+    try {
+      const name = username.trim() || "admin";
+      const salt = randomLoginSalt();
+      const authSecret = await deriveAuthSecret(password, salt, 600000);
+      const result = await setupInit(name, password, authSecret);
+      sessionStorage.setItem("kynotes-last-username", name);
+      onLogin({ username: name, authSecret, user: result.user });
+      setPassword("");
+      setConfirmPassword("");
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "Failed to initialize administrator account");
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
@@ -266,6 +304,62 @@ function Login({
     } finally {
       setBusy(false);
     }
+  }
+
+  if (setupRequired) {
+    return (
+      <main className="auth-page">
+        <section className="auth-card">
+          <div className="eyebrow">INITIAL SETUP</div>
+          <h1>Create Admin Account</h1>
+          <p className="lede">
+            Welcome to KyNotes. Set up your organization's primary administrator username and master encryption password.
+          </p>
+          <form onSubmit={submitSetup}>
+            <label>
+              Administrator Username
+              <input
+                autoComplete="username"
+                value={username}
+                onChange={(event) => setUsername(event.target.value)}
+                required
+                autoFocus
+              />
+            </label>
+            <label>
+              Master Password
+              <input
+                type="password"
+                autoComplete="new-password"
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                required
+                minLength={8}
+              />
+            </label>
+            <label>
+              Confirm Password
+              <input
+                type="password"
+                autoComplete="new-password"
+                value={confirmPassword}
+                onChange={(event) => setConfirmPassword(event.target.value)}
+                required
+                minLength={8}
+              />
+            </label>
+            {error && <p className="error">{error}</p>}
+            <button disabled={busy}>
+              {busy ? "Initializing…" : "Initialize KyNotes"}
+            </button>
+          </form>
+          <p className="hint">
+            Your master password is used in memory to derive your authentication
+            verifier and zero-knowledge note-encryption keys. It is never stored on the server.
+          </p>
+        </section>
+      </main>
+    );
   }
   return (
     <main className="auth-page">

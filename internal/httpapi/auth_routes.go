@@ -40,6 +40,89 @@ func AuthRoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config) {
 		writeJSON(w, map[string]string{"defaultTheme": theme})
 	})
 
+	handleSetupCheck := func(w http.ResponseWriter, r *http.Request) {
+		var count int
+		_ = db.QueryRow(`SELECT COUNT(*) FROM users`).Scan(&count)
+		writeJSON(w, map[string]any{"setupRequired": count == 0})
+	}
+	mux.HandleFunc("GET /api/v1/setup", handleSetupCheck)
+	mux.HandleFunc("GET /api/setup", handleSetupCheck)
+
+	handleSetupInit := func(w http.ResponseWriter, r *http.Request) {
+		var count int
+		if err := db.QueryRow(`SELECT COUNT(*) FROM users`).Scan(&count); err != nil || count > 0 {
+			WriteError(w, r, http.StatusForbidden, "setup_completed", "setup has already been completed")
+			return
+		}
+
+		var in struct {
+			Username   string `json:"username"`
+			Password   string `json:"password"`
+			AuthSecret string `json:"authSecret"`
+		}
+		if json.NewDecoder(r.Body).Decode(&in) != nil {
+			WriteError(w, r, 400, "invalid_request", "invalid request")
+			return
+		}
+
+		username := strings.TrimSpace(in.Username)
+		if username == "" {
+			username = "admin"
+		}
+
+		salt := auth.SyntheticLoginSalt(cfg.Secrets.ServerSaltKey, username)
+		iterations := 600000
+		authSecret := in.AuthSecret
+		if authSecret == "" && in.Password != "" {
+			var err error
+			authSecret, err = auth.DeriveAuthSecret(in.Password, salt, iterations)
+			if err != nil {
+				WriteError(w, r, 500, "internal", "failed to derive auth secret")
+				return
+			}
+		}
+		if len(authSecret) != 64 {
+			WriteError(w, r, 400, "invalid_request", "authSecret or password required")
+			return
+		}
+
+		hash, err := auth.HashAuthSecret(authSecret)
+		if err != nil {
+			WriteError(w, r, 500, "internal", "failed to hash auth secret")
+			return
+		}
+
+		id, err := ids.Mint("usr")
+		if err != nil {
+			WriteError(w, r, 500, "internal", "failed to mint user id")
+			return
+		}
+
+		now := time.Now().UTC().Format(time.RFC3339)
+		_, err = db.Exec(`INSERT INTO users(id, username, auth_secret_hash, login_salt, login_iterations, role, status, created_at, updated_at) VALUES(?, ?, ?, ?, ?, 'admin', 'active', ?, ?)`,
+			id, strings.ToLower(username), hash, salt, iterations, now, now)
+		if err != nil {
+			WriteError(w, r, 500, "internal", "failed to create initial admin: "+err.Error())
+			return
+		}
+
+		s, err := auth.MintSession(db, w, id, cfg.Server.DevInsecureCookies, time.Now().UTC())
+		if err != nil {
+			WriteError(w, r, 500, "internal", "failed to create session")
+			return
+		}
+
+		recordAudit(db, id, "setup.initialized", "", "", r.Header.Get("X-Request-Id"))
+		writeJSON(w, map[string]any{
+			"ok":            true,
+			"user":          map[string]string{"id": id, "role": "admin", "username": username},
+			"expiresAt":     s.ExpiresAt.UTC().Format(time.RFC3339),
+			"hardExpiresAt": s.HardExpiresAt.UTC().Format(time.RFC3339),
+		})
+	}
+	mux.HandleFunc("POST /api/v1/setup", handleSetupInit)
+	mux.HandleFunc("POST /api/setup", handleSetupInit)
+
 	handleLoginParams := func(w http.ResponseWriter, r *http.Request) {
 		var in struct {
 			Username string `json:"username"`
