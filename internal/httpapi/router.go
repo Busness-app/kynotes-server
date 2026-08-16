@@ -60,9 +60,12 @@ func NewRouter(log *logging.Logger, max int64, ready func() bool, extras ...any)
 	mux.HandleFunc("/api/v1/", func(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, r, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
 	})
+	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
+		WriteError(w, r, http.StatusNotFound, "not_found", "not found")
+	})
 	static := web.Handler()
 	mux.Handle("/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/" && r.URL.Path != "/manifest.webmanifest" && !strings.HasPrefix(r.URL.Path, "/share/") && !strings.HasPrefix(r.URL.Path, "/assets/") && !strings.HasPrefix(r.URL.Path, "/fonts/") {
+		if r.URL.Path != "/" && r.URL.Path != "/manifest.webmanifest" && r.URL.Path != "/favicon.ico" && !strings.HasPrefix(r.URL.Path, "/share/") && !strings.HasPrefix(r.URL.Path, "/assets/") && !strings.HasPrefix(r.URL.Path, "/fonts/") && !strings.HasPrefix(r.URL.Path, "/auth/") {
 			WriteError(w, r, http.StatusNotFound, "not_found", "not found")
 			return
 		}

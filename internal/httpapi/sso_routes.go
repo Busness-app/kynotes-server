@@ -36,18 +36,19 @@ func requestHost(r *http.Request) string {
 
 // SSORoutes registers OIDC SSO and directory sync endpoints.
 func SSORoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config, ssoStore *sso.Store) {
-	// Public endpoint for frontend to check if SSO is enabled
-	mux.HandleFunc("GET /api/v1/auth/sso-config", func(w http.ResponseWriter, r *http.Request) {
+	handleSSOConfig := func(w http.ResponseWriter, r *http.Request) {
 		settings := ssoStore.Load()
 		writeJSON(w, map[string]any{
 			"enabled":   settings.Enabled,
 			"issuerUrl": settings.IssuerURL,
 			"clientId":  settings.ClientID,
 		})
-	})
+	}
+	mux.HandleFunc("GET /api/v1/auth/sso-config", handleSSOConfig)
+	mux.HandleFunc("GET /api/auth/sso-config", handleSSOConfig)
 
 	// Initiates OpenID Connect authorization code flow with PKCE
-	mux.HandleFunc("GET /api/v1/auth/oidc/login", func(w http.ResponseWriter, r *http.Request) {
+	handleOIDCFlow := func(w http.ResponseWriter, r *http.Request) {
 		settings := ssoStore.Load()
 		if !settings.Enabled || settings.IssuerURL == "" {
 			WriteError(w, r, http.StatusServiceUnavailable, "sso_disabled", "Single Sign-On is not configured or disabled")
@@ -86,7 +87,7 @@ func SSORoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config, ssoStore *sso.
 		}
 		redirectURI := settings.RedirectURI
 		if redirectURI == "" {
-			redirectURI = fmt.Sprintf("%s://%s/api/v1/auth/oidc/callback", scheme, requestHost(r))
+			redirectURI = fmt.Sprintf("%s://%s%s", scheme, requestHost(r), strings.Replace(r.URL.Path, "/login", "/callback", 1))
 		}
 
 		authURL, err := url.Parse(disc.AuthorizationEndpoint)
@@ -105,10 +106,13 @@ func SSORoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config, ssoStore *sso.
 		authURL.RawQuery = q.Encode()
 
 		http.Redirect(w, r, authURL.String(), http.StatusFound)
-	})
+	}
+	mux.HandleFunc("GET /api/v1/auth/oidc/login", handleOIDCFlow)
+	mux.HandleFunc("GET /api/auth/oidc/login", handleOIDCFlow)
+	mux.HandleFunc("GET /auth/oidc/login", handleOIDCFlow)
 
 	// Handles OAuth redirect callback, verifies PKCE, exchanges code for token, mints session
-	mux.HandleFunc("GET /api/v1/auth/oidc/callback", func(w http.ResponseWriter, r *http.Request) {
+	handleOIDCCallback := func(w http.ResponseWriter, r *http.Request) {
 		settings := ssoStore.Load()
 		if !settings.Enabled || settings.IssuerURL == "" {
 			WriteError(w, r, http.StatusServiceUnavailable, "sso_disabled", "Single Sign-On is not configured or disabled")
@@ -147,7 +151,7 @@ func SSORoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config, ssoStore *sso.
 		}
 		redirectURI := settings.RedirectURI
 		if redirectURI == "" {
-			redirectURI = fmt.Sprintf("%s://%s/api/v1/auth/oidc/callback", scheme, requestHost(r))
+			redirectURI = fmt.Sprintf("%s://%s%s", scheme, requestHost(r), r.URL.Path)
 		}
 
 		tok, err := sso.ExchangeCode(r.Context(), disc.TokenEndpoint, settings.ClientID, settings.ClientSecret, code, redirectURI, codeVerifier)
@@ -227,10 +231,13 @@ func SSORoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config, ssoStore *sso.
 
 		recordAudit(db, userID, "auth.sso_login", "", "", r.Header.Get("X-Request-Id"))
 		http.Redirect(w, r, "/", http.StatusFound)
-	})
+	}
+	mux.HandleFunc("GET /api/v1/auth/oidc/callback", handleOIDCCallback)
+	mux.HandleFunc("GET /api/auth/oidc/callback", handleOIDCCallback)
+	mux.HandleFunc("GET /auth/oidc/callback", handleOIDCCallback)
 
 	// Directory Sync Webhook from KySignOn
-	mux.HandleFunc("POST /api/v1/sync/events", func(w http.ResponseWriter, r *http.Request) {
+	handleSyncEvents := func(w http.ResponseWriter, r *http.Request) {
 		settings := ssoStore.Load()
 		body, err := io.ReadAll(r.Body)
 		if err != nil {
@@ -251,76 +258,94 @@ func SSORoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config, ssoStore *sso.
 		}
 
 		var event struct {
-			EventID   string `json:"eventId"`
-			EventType string `json:"eventType"`
-			Timestamp string `json:"timestamp"`
-			User      struct {
-				ID          string `json:"id"`
-				Username    string `json:"username"`
-				Email       string `json:"email"`
-				DisplayName string `json:"displayName"`
-				Role        string `json:"role"`
-				Status      string `json:"status"`
-			} `json:"user"`
+			EventID   string         `json:"eventId"`
+			EventType string         `json:"eventType"`
+			Timestamp string         `json:"timestamp"`
+			User      *sso.SyncUser  `json:"user,omitempty"`
+			Users     []sso.SyncUser `json:"users,omitempty"`
 		}
 
 		if err := json.Unmarshal(body, &event); err != nil {
-			WriteError(w, r, http.StatusBadRequest, "invalid_payload", "failed to parse sync event JSON")
+			WriteError(w, r, http.StatusBadRequest, "invalid_json", "failed to decode sync payload")
 			return
 		}
 
-		now := time.Now().UTC().Format(time.RFC3339)
 		switch event.EventType {
-		case "user.created":
-			var existingID string
-			err := db.QueryRow(`SELECT id FROM users WHERE sso_subject=? OR username=?`, event.User.ID, strings.ToLower(event.User.Username)).Scan(&existingID)
-			if err != nil {
-				newID, _ := ids.Mint("usr")
-				role := "user"
-				if event.User.Role == "admin" {
-					role = "admin"
+		case "user.created", "user.updated", "user.status_changed", "user.disabled", "user.enabled":
+			if event.User != nil {
+				if err := syncSingleUser(db, cfg, event.User); err != nil {
+					WriteError(w, r, http.StatusInternalServerError, "sync_failed", err.Error())
+					return
 				}
-				status := "active"
-				if event.User.Status == "disabled" {
-					status = "disabled"
-				}
-				dummyBytes := make([]byte, 32)
-				_, _ = rand.Read(dummyBytes)
-				dummySecret := hex.EncodeToString(dummyBytes)
-				dummyHash, _ := auth.HashAuthSecret(dummySecret)
-				loginSalt := auth.SyntheticLoginSalt(cfg.Secrets.ServerSaltKey, event.User.Username)
-
-				_, _ = db.Exec(`INSERT INTO users(id, username, auth_secret_hash, login_salt, login_iterations, role, status, sso_subject, created_at, updated_at) VALUES(?, ?, ?, ?, 600000, ?, ?, ?, ?, ?)`,
-					newID, strings.ToLower(event.User.Username), dummyHash, loginSalt, role, status, event.User.ID, now, now)
-				recordAudit(db, newID, "sync.user_created", "", "", r.Header.Get("X-Request-Id"))
 			}
-		case "user.updated":
-			role := "user"
-			if event.User.Role == "admin" {
-				role = "admin"
+		case "user.deleted":
+			if event.User != nil {
+				_, _ = db.Exec(`DELETE FROM users WHERE sso_subject=? OR (username != '' AND username=?)`, event.User.ID, strings.ToLower(event.User.Username))
 			}
-			status := "active"
-			if event.User.Status == "disabled" {
-				status = "disabled"
+		case "directory.resync":
+			for _, u := range event.Users {
+				_ = syncSingleUser(db, cfg, &u)
 			}
-			_, _ = db.Exec(`UPDATE users SET username=?, role=?, status=?, updated_at=? WHERE sso_subject=?`,
-				strings.ToLower(event.User.Username), role, status, now, event.User.ID)
-			if status == "disabled" {
-				_, _ = db.Exec(`UPDATE sessions SET revoked_at=? WHERE user_id IN (SELECT id FROM users WHERE sso_subject=?)`, now, event.User.ID)
-			}
-			recordAudit(db, event.User.ID, "sync.user_updated", "", "", r.Header.Get("X-Request-Id"))
-		case "user.status_changed":
-			status := "active"
-			if event.User.Status == "disabled" {
-				status = "disabled"
-			}
-			_, _ = db.Exec(`UPDATE users SET status=?, updated_at=? WHERE sso_subject=?`, status, now, event.User.ID)
-			if status == "disabled" {
-				_, _ = db.Exec(`UPDATE sessions SET revoked_at=? WHERE user_id IN (SELECT id FROM users WHERE sso_subject=?)`, now, event.User.ID)
-			}
-			recordAudit(db, event.User.ID, "sync.status_changed", "", "", r.Header.Get("X-Request-Id"))
 		}
 
-		writeJSON(w, map[string]any{"status": "processed"})
-	})
+		writeJSON(w, map[string]any{"status": "applied", "eventId": event.EventID})
+	}
+	mux.HandleFunc("POST /api/v1/sync/events", handleSyncEvents)
+	mux.HandleFunc("POST /api/sync/events", handleSyncEvents)
+	mux.HandleFunc("POST /sync/events", handleSyncEvents)
+}
+
+func syncSingleUser(db *sql.DB, cfg config.Config, u *sso.SyncUser) error {
+	var existingID, existingUsername, existingRole, existingStatus string
+	err := db.QueryRow(`SELECT id, username, role, status FROM users WHERE sso_subject=? OR (username != '' AND username=?)`, u.ID, strings.ToLower(u.Username)).Scan(&existingID, &existingUsername, &existingRole, &existingStatus)
+	now := time.Now().UTC().Format(time.RFC3339)
+
+	username := strings.ToLower(u.Username)
+	if username == "" {
+		username = existingUsername
+	}
+	role := existingRole
+	if role == "" {
+		role = "user"
+	}
+	if u.Role != "" {
+		if u.Role == "admin" {
+			role = "admin"
+		} else {
+			role = "user"
+		}
+	}
+	status := existingStatus
+	if status == "" {
+		status = "active"
+	}
+	if u.Status != "" {
+		if u.Status == "disabled" {
+			status = "disabled"
+		} else {
+			status = "active"
+		}
+	}
+
+	if err != nil {
+		// Insert new user
+		if username == "" {
+			username = u.ID
+		}
+		newID, _ := ids.Mint("usr")
+		dummyBytes := make([]byte, 32)
+		_, _ = rand.Read(dummyBytes)
+		dummySecret := hex.EncodeToString(dummyBytes)
+		dummyHash, _ := auth.HashAuthSecret(dummySecret)
+		loginSalt := auth.SyntheticLoginSalt(cfg.Secrets.ServerSaltKey, username)
+
+		_, err = db.Exec(`INSERT INTO users(id, username, auth_secret_hash, login_salt, login_iterations, role, status, sso_subject, created_at, updated_at) VALUES(?, ?, ?, ?, 600000, ?, ?, ?, ?, ?)`,
+			newID, username, dummyHash, loginSalt, role, status, u.ID, now, now)
+		return err
+	}
+
+	// Update existing user
+	_, err = db.Exec(`UPDATE users SET username=?, role=?, status=?, sso_subject=?, updated_at=? WHERE id=?`,
+		username, role, status, u.ID, now, existingID)
+	return err
 }

@@ -284,11 +284,14 @@ func AdminRoutes(mux *http.ServeMux, db *sql.DB, ssoStore *sso.Store) {
 		writeJSON(w, out)
 	})))
 	if ssoStore != nil {
-		mux.Handle("GET /api/v1/admin/sso", auth.RequireAdmin(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		handleGetSSO := auth.RequireAdmin(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			settings := ssoStore.Load()
 			writeJSON(w, settings)
-		})))
-		mux.Handle("POST /api/v1/admin/sso", auth.RequireAdmin(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		}))
+		mux.Handle("GET /api/v1/admin/sso", handleGetSSO)
+		mux.Handle("GET /api/admin/sso", handleGetSSO)
+
+		handlePostSSO := auth.RequireAdmin(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if auth.CheckCSRF(r) != nil {
 				WriteError(w, r, 403, "csrf_failed", "csrf validation failed")
 				return
@@ -305,8 +308,11 @@ func AdminRoutes(mux *http.ServeMux, db *sql.DB, ssoStore *sso.Store) {
 			s, _ := auth.SessionFromContext(r)
 			recordAudit(db, s.UserID, "admin.sso_update", "", "", r.Header.Get("X-Request-Id"))
 			writeJSON(w, in)
-		})))
-		mux.Handle("POST /api/v1/admin/sso/pair", auth.RequireAdmin(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		}))
+		mux.Handle("POST /api/v1/admin/sso", handlePostSSO)
+		mux.Handle("POST /api/admin/sso", handlePostSSO)
+
+		handlePairSSO := auth.RequireAdmin(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if auth.CheckCSRF(r) != nil {
 				WriteError(w, r, 403, "csrf_failed", "csrf validation failed")
 				return
@@ -358,6 +364,8 @@ func AdminRoutes(mux *http.ServeMux, db *sql.DB, ssoStore *sso.Store) {
 				"systemId": resp.SystemID,
 				"settings": newSettings,
 			})
-		})))
+		}))
+		mux.Handle("POST /api/v1/admin/sso/pair", handlePairSSO)
+		mux.Handle("POST /api/admin/sso/pair", handlePairSSO)
 	}
 }

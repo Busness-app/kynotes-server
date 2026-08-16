@@ -32,7 +32,15 @@ func AuthRoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config) {
 		}
 		writeJSON(w, map[string]string{"defaultTheme": theme})
 	})
-	mux.HandleFunc("POST /api/v1/auth/login-params", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /api/theme", func(w http.ResponseWriter, r *http.Request) {
+		var theme string
+		if db.QueryRow(`SELECT value FROM server_settings WHERE key='default_theme'`).Scan(&theme) != nil {
+			theme = "Patina Ky"
+		}
+		writeJSON(w, map[string]string{"defaultTheme": theme})
+	})
+
+	handleLoginParams := func(w http.ResponseWriter, r *http.Request) {
 		var in struct {
 			Username string `json:"username"`
 		}
@@ -47,8 +55,11 @@ func AuthRoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config) {
 			iterations = 600000
 		}
 		writeJSON(w, map[string]any{"loginSalt": salt, "iterations": iterations})
-	})
-	mux.HandleFunc("POST /api/v1/auth/login", func(w http.ResponseWriter, r *http.Request) {
+	}
+	mux.HandleFunc("POST /api/v1/auth/login-params", handleLoginParams)
+	mux.HandleFunc("POST /api/auth/login-params", handleLoginParams)
+
+	handleLogin := func(w http.ResponseWriter, r *http.Request) {
 		var in struct {
 			Username   string `json:"username"`
 			AuthSecret string `json:"authSecret"`
@@ -81,14 +92,20 @@ func AuthRoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config) {
 		}
 		recordAudit(db, id, "auth.login", "", "", r.Header.Get("X-Request-Id"))
 		writeJSON(w, map[string]any{"user": map[string]string{"id": id, "role": role}, "expiresAt": s.ExpiresAt.UTC().Format(time.RFC3339), "hardExpiresAt": s.HardExpiresAt.UTC().Format(time.RFC3339)})
-	})
-	mux.Handle("GET /api/v1/auth/session", auth.RequireSession(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	}
+	mux.HandleFunc("POST /api/v1/auth/login", handleLogin)
+	mux.HandleFunc("POST /api/auth/login", handleLogin)
+
+	handleSession := auth.RequireSession(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		s, _ := auth.SessionFromContext(r)
 		var role, username string
 		_ = db.QueryRow(`SELECT role, username FROM users WHERE id=?`, s.UserID).Scan(&role, &username)
 		writeJSON(w, map[string]any{"user": map[string]string{"id": s.UserID, "role": role, "username": username}, "expiresAt": s.ExpiresAt.UTC().Format(time.RFC3339), "hardExpiresAt": s.HardExpiresAt.UTC().Format(time.RFC3339)})
-	})))
-	mux.Handle("POST /api/v1/auth/logout", auth.RequireSession(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	}))
+	mux.Handle("GET /api/v1/auth/session", handleSession)
+	mux.Handle("GET /api/auth/session", handleSession)
+
+	handleLogout := auth.RequireSession(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if auth.CheckCSRF(r) != nil {
 			WriteError(w, r, 403, "csrf_failed", "csrf validation failed")
 			return
@@ -102,7 +119,9 @@ func AuthRoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config) {
 		clearCookie(w, "kynotes_session", true, secure)
 		clearCookie(w, "csrf_token", false, secure)
 		w.WriteHeader(http.StatusNoContent)
-	})))
+	}))
+	mux.Handle("POST /api/v1/auth/logout", handleLogout)
+	mux.Handle("POST /api/auth/logout", handleLogout)
 	mux.Handle("POST /api/v1/auth/password", auth.RequireSession(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if auth.CheckCSRF(r) != nil {
 			WriteError(w, r, 403, "csrf_failed", "csrf validation failed")
