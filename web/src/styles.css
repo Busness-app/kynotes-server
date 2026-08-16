@@ -177,13 +177,10 @@ button, input, textarea, select { border-radius: 12px; corner-shape: squircle; }
 .context-link:hover { color: var(--ink-strong); }
 .format-toolbar button.active { color: var(--ink-strong); outline: 2px solid var(--accent); }
 .single-pane-editor { min-height: 360px; display: flex; }
-.tiptap-editor { width: 100%; min-height: 360px; overflow: auto; color: var(--ink); }
-.tiptap-editor .tiptap-content { min-height: 360px; padding: 28px 0; color: var(--ink); outline: none; line-height: 1.8; }
-.tiptap-editor .tiptap-content h1, .tiptap-editor .tiptap-content h2, .tiptap-editor .tiptap-content h3 { color: var(--ink-strong); line-height: 1.15; }
-.tiptap-editor .tiptap-content blockquote { margin-left: 0; padding-left: 16px; border-left: 3px solid var(--accent); color: var(--ink); }
-.tiptap-editor .tiptap-content pre { padding: 14px; overflow: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; }
-.tiptap-editor .tiptap-content code { font-family: Mono, monospace; }
-.tiptap-editor .tiptap-content img { display: block; max-width: 100%; height: auto; margin: 16px 0; border-radius: 12px; }
+.blocknote-editor { width: 100%; min-height: 420px; color: var(--ink); }
+.blocknote-editor .bn-container { min-height: 420px; border: 1px solid var(--line); border-radius: 16px; corner-shape: squircle; background: var(--panel); color: var(--ink); }
+.blocknote-editor .bn-editor { min-height: 380px; padding: 24px clamp(18px, 4vw, 42px); background: var(--panel); color: var(--ink); }
+.blocknote-editor .bn-side-menu, .blocknote-editor .bn-formatting-toolbar, .blocknote-editor .bn-suggestion-menu { z-index: 4; }
 .comment-compose { flex-wrap: wrap; }
 .comment-compose input:first-child { flex: 0 1 180px; }
 .shared-note { width: min(100%, 760px); padding: 48px; color: var(--ink-strong); background: var(--panel); border: 1px solid var(--line); border-radius: 24px; corner-shape: squircle; box-shadow: 12px 12px 0 var(--accent-soft); }

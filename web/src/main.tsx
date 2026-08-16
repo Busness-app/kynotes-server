@@ -88,11 +88,11 @@ import {
   type ThemeName,
 } from "./theme";
 import { contextualNotes, graphEdges, searchNotes } from "./knowledge";
-import { documentText, emptyNoteDocument, normalizeNoteBody, parseNoteDocument, stringifyNoteDocument } from "./document";
-import type { EditorActions } from "./TiptapEditor";
+import { documentText, emptyNoteDocument, isStructuredNoteBody, parseNoteDocument, stringifyNoteDocument } from "./document";
+import type { Block } from "@blocknote/core";
 import "./styles.css";
 
-const TiptapEditor = lazy(() => import("./TiptapEditor").then((module) => ({ default: module.TiptapEditor })));
+const BlockNoteEditor = lazy(() => import("./BlockNoteEditor").then((module) => ({ default: module.BlockNoteEditor })));
 
 type AuthState = {
   username: string;
@@ -297,8 +297,6 @@ function Workspace({
   );
   const [sort, setSort] = useState<"updated" | "title">("updated");
   const [query, setQuery] = useState("");
-  const imageInput = useRef<HTMLInputElement>(null);
-  const editorActions = useRef<EditorActions | null>(null);
   const pinsKey = `kynotes-pins-${auth.user.id}`;
   const pinned = useMemo(() => {
     try {
@@ -513,7 +511,7 @@ function Workspace({
           loaded.push({
             id: change.id,
             ...payload,
-            body: await normalizeNoteBody(payload.body),
+            body: payload.body,
             version:
               cached && cached.version >= object.version
                 ? cached.version
@@ -535,7 +533,7 @@ function Workspace({
               loaded.push({
                 id: change.id,
                 ...payload,
-                body: await normalizeNoteBody(payload.body),
+                body: payload.body,
                 version: cached.version,
                 updatedAt: cached.updatedAt,
               });
@@ -921,25 +919,21 @@ function Workspace({
       setBusy(false);
     }
   }
-  async function addInlineImage(file: File) {
-    if (!selectedNote || !file.type.startsWith("image/")) return;
-    if (!editorActions.current) {
-      setError("The editor is still loading. Try again in a moment.");
-      return;
-    }
-    setBusy(true);
-    try {
-      const attachment = await uploadAttachment(file);
-      const filename = file.name.replace(/[\[\]()\r\n]/g, "").trim() || "image";
-      setAttachmentsForNote((value) => [...value, attachment]);
-      const source = `attachment://${attachment.id}`;
-      editorActions.current?.insertImage(source, filename);
-      setError("Inline image added and encrypted as an attachment.");
-    } catch (error) {
-      setError(error instanceof Error ? error.message : "Unable to add inline image");
-    } finally {
-      setBusy(false);
-    }
+  async function uploadInlineFile(file: File): Promise<string> {
+    const attachment = await uploadAttachment(file);
+    setAttachmentsForNote((value) => [...value, attachment]);
+    return `attachment://${attachment.id}`;
+  }
+  async function resolveFileUrl(url: string): Promise<string> {
+    if (!url.startsWith("attachment://") || !selected) return url;
+    const attachmentID = url.slice("attachment://".length);
+    const existing = attachmentSources[attachmentID];
+    if (existing) return existing;
+    const attachment = attachmentsForNote.find((value) => value.id === attachmentID);
+    if (!attachment) return url;
+    const encrypted = await downloadAttachment(attachment.id);
+    const plaintext = await decryptAttachment(auth.authSecret, selected.id, encrypted);
+    return URL.createObjectURL(new Blob([plaintext.slice().buffer as ArrayBuffer], { type: attachment.type }));
   }
   async function openAttachment(attachment: PlainAttachment) {
     if (!selected) return;
@@ -1285,23 +1279,16 @@ function Workspace({
                     persistDraft(next);
                   }}
                 />
-                <div className="format-toolbar">
-                  <button onClick={() => editorActions.current?.toggleBold()}>Bold</button>
-                  <button onClick={() => editorActions.current?.toggleItalic()}>Italic</button>
-                  <button onClick={() => editorActions.current?.toggleHeading()}>Heading</button>
-                  <button onClick={() => editorActions.current?.toggleList()}>List</button>
-                  <button onClick={() => editorActions.current?.toggleCode()}>Code</button>
-                  <button onClick={() => imageInput.current?.click()}>Image</button>
-                  <input ref={imageInput} className="visually-hidden" type="file" accept="image/*" onChange={(event) => { const file = event.target.files?.[0]; if (file) addInlineImage(file); event.currentTarget.value = ""; }} />
-                </div>
                 <div className="single-pane-editor">
-                  <Suspense fallback={<div className="tiptap-editor editor-loading">Loading editor…</div>}>
-                    <TiptapEditor
+                  <Suspense fallback={<div className="blocknote-editor editor-loading">Loading editor…</div>}>
+                    <BlockNoteEditor
                       key={selectedNote.id}
-                      value={parseNoteDocument(selectedNote.body).document}
-                      onChange={(document) => editBody(stringifyNoteDocument(document))}
-                      imageSources={attachmentSources}
-                      onReady={(actions) => { editorActions.current = actions; }}
+                      noteID={selectedNote.id}
+                      initialContent={parseNoteDocument(selectedNote.body).document}
+                      legacyMarkdown={isStructuredNoteBody(selectedNote.body) ? undefined : selectedNote.body}
+                      onChange={(document: Block[]) => editBody(stringifyNoteDocument(document))}
+                      uploadFile={uploadInlineFile}
+                      resolveFileUrl={resolveFileUrl}
                     />
                   </Suspense>
                 </div>

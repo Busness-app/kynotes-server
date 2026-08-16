@@ -1,30 +1,22 @@
-import type { JSONContent } from "@tiptap/core";
-import { MarkdownManager } from "@tiptap/markdown";
-import StarterKit from "@tiptap/starter-kit";
-import Image from "@tiptap/extension-image";
-import Link from "@tiptap/extension-link";
+import type { PartialBlock } from "@blocknote/core";
 
-export const NOTE_DOCUMENT_FORMAT = "kynotes.tiptap.v1";
-const markdownManager = new MarkdownManager({ extensions: [StarterKit, Image, Link] });
+export const NOTE_DOCUMENT_FORMAT = "kynotes.blocknote.v1";
 
 export type NoteDocument = {
   format: typeof NOTE_DOCUMENT_FORMAT;
-  document: JSONContent;
+  document: PartialBlock[];
 };
 
 export const emptyNoteDocument = (): NoteDocument => ({
   format: NOTE_DOCUMENT_FORMAT,
-  document: { type: "doc", content: [{ type: "paragraph" }] },
+  document: [{ type: "paragraph", content: "" }],
 });
 
 export function parseNoteDocument(body: string): NoteDocument {
   try {
     const value = JSON.parse(body) as Partial<NoteDocument>;
-    if (value.format === NOTE_DOCUMENT_FORMAT && value.document?.type === "doc") {
+    if (value.format === NOTE_DOCUMENT_FORMAT && Array.isArray(value.document)) {
       return { format: NOTE_DOCUMENT_FORMAT, document: value.document };
-    }
-    if ((value as JSONContent).type === "doc") {
-      return { format: NOTE_DOCUMENT_FORMAT, document: value as JSONContent };
     }
   } catch {
     /* Empty or invalid content is treated as a new document. */
@@ -32,44 +24,39 @@ export function parseNoteDocument(body: string): NoteDocument {
   if (!body) return emptyNoteDocument();
   return {
     format: NOTE_DOCUMENT_FORMAT,
-    document: {
-      type: "doc",
-      content: [{ type: "paragraph", content: [{ type: "text", text: body }] }],
-    },
+    document: [{
+      type: "paragraph",
+      content: body,
+    }],
   };
 }
 
-export function stringifyNoteDocument(document: JSONContent): string {
+export function stringifyNoteDocument(document: PartialBlock[]): string {
   return JSON.stringify({ format: NOTE_DOCUMENT_FORMAT, document });
-}
-
-export async function normalizeNoteBody(body: string): Promise<string> {
-  try {
-    const value = JSON.parse(body) as Partial<NoteDocument> & JSONContent;
-    if ((value.format === NOTE_DOCUMENT_FORMAT && value.document?.type === "doc") || value.type === "doc") {
-      return stringifyNoteDocument(parseNoteDocument(body).document);
-    }
-  } catch {
-    /* Legacy content is parsed below. */
-  }
-  if (!body) return stringifyNoteDocument(emptyNoteDocument().document);
-  try {
-    const document = markdownManager.parse(body);
-    if (document.type === "doc") return stringifyNoteDocument(document);
-  } catch (error) {
-    throw new Error(`Unable to convert saved note: ${error instanceof Error ? error.message : "invalid document"}`);
-  }
-  return stringifyNoteDocument(parseNoteDocument(body).document);
 }
 
 export function documentText(body: string): string {
   const value = parseNoteDocument(body).document;
   const text: string[] = [];
-  const visit = (node: JSONContent) => {
-    if (typeof node.text === "string") text.push(node.text);
-    if (node.type === "image" && typeof node.attrs?.alt === "string") text.push(`[${node.attrs.alt}]`);
-    node.content?.forEach(visit);
+  const visit = (node: PartialBlock) => {
+    if (typeof node.content === "string") text.push(node.content);
+    if (Array.isArray(node.content)) {
+      node.content.forEach((inline) => {
+        if (typeof inline === "object" && inline !== null && "text" in inline && typeof inline.text === "string") text.push(inline.text);
+      });
+    }
+    if (node.type === "image" && typeof node.props?.name === "string") text.push(`[${node.props.name}]`);
+    node.children?.forEach(visit);
   };
-  visit(value);
+  value.forEach(visit);
   return text.join(" ");
+}
+
+export function isStructuredNoteBody(body: string): boolean {
+  try {
+    const value = JSON.parse(body) as Partial<NoteDocument>;
+    return value.format === NOTE_DOCUMENT_FORMAT && Array.isArray(value.document);
+  } catch {
+    return false;
+  }
 }

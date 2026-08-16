@@ -68,12 +68,13 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
 - `web/` is the browser client; keep plaintext in browser memory only, send
   CSRF headers on mutations, and run its `npm test` plus `npm run build` checks.
 - `web/` also contains the encrypted local save queue, client-only search,
-  contextual resurfacing, graph projections, and a lazy-loaded Tiptap JSON
-  editor with encrypted section anchors for comments. Attachment payloads and
-  metadata are encrypted in the browser, and pending chunked uploads are
-  persisted in the IndexedDB vault for reload recovery, with visible progress,
-  retry, and cancel controls. Inline images use encrypted attachment payloads
-  and dedicated attachment-reference nodes in the document. The workspace surface
+  contextual resurfacing, graph projections, and a lazy-loaded BlockNote JSON
+  editor with built-in formatting and file controls plus encrypted section
+  anchors for comments. Attachment payloads and metadata are encrypted in the
+  browser, and pending chunked uploads are persisted in the IndexedDB vault for
+  reload recovery, with visible progress, retry, and cancel controls. Inline
+  images use encrypted attachment payloads and attachment-backed image blocks.
+  The workspace surface
   labels personal workbooks explicitly, and the admin surface uses tabbed
   server, users, teams, and audit sections. The save queue is kept in the
   existing IndexedDB vault, drains on startup/online recovery and every 15
