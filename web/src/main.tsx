@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import {
   addAdminTeamMember,
   adminAudit,
+  adminSSO,
   adminTeams,
   adminUsers,
   attachToObject,
@@ -31,13 +32,16 @@ import {
   notifications,
   objectConflicts,
   objectAttachments,
+  pairAdminSSO,
   readObject,
   removeMember,
   resetAdminPassword,
+  saveAdminSSO,
   saveObject,
   serverTheme,
   serviceStatus,
   session,
+  ssoConfig,
   updateAdminUser,
   updateContainer,
   updatePresence,
@@ -48,6 +52,7 @@ import {
   type Container,
   type Note,
   type Session,
+  type SSOSettings,
 } from "./api";
 import {
   decryptComment,
@@ -194,6 +199,12 @@ function Login({ onLogin }: { onLogin: (auth: AuthState) => void }) {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [sso, setSSO] = useState<{ enabled: boolean; issuerUrl: string; clientId: string } | null>(null);
+
+  useEffect(() => {
+    void ssoConfig().then(setSSO).catch(() => {});
+  }, []);
+
   async function submit(event: React.FormEvent) {
     event.preventDefault();
     setError("");
@@ -223,6 +234,33 @@ function Login({ onLogin }: { onLogin: (auth: AuthState) => void }) {
         <p className="lede">
           Your notes are encrypted in this browser before they leave it.
         </p>
+        {sso?.enabled && (
+          <div>
+            <a
+              href="/api/v1/auth/oidc/login"
+              style={{
+                display: "block",
+                textAlign: "center",
+                padding: "13px 18px",
+                background: "transparent",
+                color: "var(--ink-strong)",
+                border: "1px solid var(--accent)",
+                boxShadow: "0 0 12px var(--glow)",
+                borderRadius: "3px",
+                textDecoration: "none",
+                fontWeight: 600,
+                marginBottom: "20px",
+              }}
+            >
+              Sign In with KySignOn SSO
+            </a>
+            <div style={{ display: "flex", alignItems: "center", gap: "10px", margin: "16px 0", color: "var(--ink)" }}>
+              <div style={{ flex: 1, height: "1px", background: "var(--line)" }} />
+              <span style={{ font: "11px Mono, monospace", textTransform: "uppercase", letterSpacing: ".1em" }}>or password</span>
+              <div style={{ flex: 1, height: "1px", background: "var(--line)" }} />
+            </div>
+          </div>
+        )}
         <form onSubmit={submit}>
           <label>
             Username
@@ -1785,6 +1823,156 @@ function AdminTeams({ users, authSecret }: { users: AdminUser[]; authSecret: str
   );
 }
 
+function AdminSSO() {
+  const [settings, setSettings] = useState<SSOSettings | null>(null);
+  const [pairingToken, setPairingToken] = useState("");
+  const [pairingIssuer, setPairingIssuer] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<{ text: string; type: "success" | "error" } | null>(null);
+
+  useEffect(() => {
+    void adminSSO().then(setSettings).catch(() => {});
+  }, []);
+
+  async function handlePair(e: React.FormEvent) {
+    e.preventDefault();
+    if (!pairingToken.trim() || !pairingIssuer.trim()) return;
+    setBusy(true);
+    setMessage(null);
+    try {
+      const res = await pairAdminSSO(pairingIssuer.trim(), pairingToken.trim());
+      setSettings(res.settings);
+      setPairingToken("");
+      setMessage({ text: `Successfully paired with KySignOn (System ID: ${res.systemId})!`, type: "success" });
+    } catch (err) {
+      setMessage({ text: err instanceof Error ? err.message : "Pairing failed", type: "error" });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleSave(e: React.FormEvent) {
+    e.preventDefault();
+    if (!settings) return;
+    setBusy(true);
+    setMessage(null);
+    try {
+      const updated = await saveAdminSSO(settings);
+      setSettings(updated);
+      setMessage({ text: "Single Sign-On settings saved successfully.", type: "success" });
+    } catch (err) {
+      setMessage({ text: err instanceof Error ? err.message : "Unable to save SSO settings", type: "error" });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (!settings) return <p className="config-muted">Loading Single Sign-On configuration…</p>;
+
+  return (
+    <section id="sso" className="config-card">
+      <h2>Single Sign-On (KySignOn / OIDC)</h2>
+      <p className="config-muted">
+        Connect KyNotes to KySignOn Server for one-click single sign-on and automated user directory replication.
+      </p>
+      {message && (
+        <p className={message.type === "error" ? "error" : "status-line"} style={{ margin: "14px 0" }}>
+          {message.text}
+        </p>
+      )}
+
+      <div style={{ background: "var(--accent-soft)", padding: "16px", borderRadius: "4px", margin: "18px 0" }}>
+        <h3 style={{ margin: "0 0 8px", fontSize: "14px", font: "12px Mono, monospace", letterSpacing: ".1em", textTransform: "uppercase" }}>
+          Quick Pair with KySignOn
+        </h3>
+        <p className="config-muted" style={{ margin: "0 0 14px", fontSize: "13px" }}>
+          Generate a 90-second system pairing token in KySignOn Admin Dashboard to pair KyNotes automatically.
+        </p>
+        <form onSubmit={handlePair} style={{ display: "grid", gap: "12px" }}>
+          <label className="field" style={{ marginTop: 0 }}>
+            <span>KySignOn Issuer URL</span>
+            <input
+              placeholder="http://localhost:5867 or https://auth.example.com"
+              value={pairingIssuer}
+              onChange={(e) => setPairingIssuer(e.target.value)}
+              required
+            />
+          </label>
+          <label className="field" style={{ marginTop: 0 }}>
+            <span>90-Second Pairing Token</span>
+            <input
+              placeholder="Enter pairing token from KySignOn UI"
+              value={pairingToken}
+              onChange={(e) => setPairingToken(e.target.value)}
+              required
+            />
+          </label>
+          <button disabled={busy} style={{ width: "fit-content" }}>
+            {busy ? "Pairing…" : "Pair with KySignOn"}
+          </button>
+        </form>
+      </div>
+
+      <form onSubmit={handleSave} style={{ marginTop: "24px" }}>
+        <label style={{ display: "flex", alignItems: "center", gap: "10px", cursor: "pointer" }}>
+          <input
+            type="checkbox"
+            checked={settings.enabled}
+            onChange={(e) => setSettings({ ...settings, enabled: e.target.checked })}
+            style={{ width: "18px", height: "18px" }}
+          />
+          <strong style={{ fontSize: "14px" }}>Enable OpenID Connect / Single Sign-On</strong>
+        </label>
+        <label className="field">
+          <span>OIDC Issuer URL</span>
+          <input
+            value={settings.issuerUrl}
+            onChange={(e) => setSettings({ ...settings, issuerUrl: e.target.value })}
+            placeholder="https://auth.example.com"
+          />
+        </label>
+        <label className="field">
+          <span>Client ID</span>
+          <input
+            value={settings.clientId}
+            onChange={(e) => setSettings({ ...settings, clientId: e.target.value })}
+            placeholder="kynotes"
+          />
+        </label>
+        <label className="field">
+          <span>Client Secret (Optional for PKCE)</span>
+          <input
+            type="password"
+            value={settings.clientSecret ?? ""}
+            onChange={(e) => setSettings({ ...settings, clientSecret: e.target.value })}
+            placeholder="••••••••"
+          />
+        </label>
+        <label className="field">
+          <span>Custom Redirect URI (Optional override)</span>
+          <input
+            value={settings.redirectUri ?? ""}
+            onChange={(e) => setSettings({ ...settings, redirectUri: e.target.value })}
+            placeholder="https://notes.example.com/api/v1/auth/oidc/callback"
+          />
+        </label>
+        <label style={{ display: "flex", alignItems: "center", gap: "10px", marginTop: "16px", cursor: "pointer" }}>
+          <input
+            type="checkbox"
+            checked={settings.autoProvision}
+            onChange={(e) => setSettings({ ...settings, autoProvision: e.target.checked })}
+            style={{ width: "18px", height: "18px" }}
+          />
+          <span style={{ fontSize: "13px" }}>Auto-provision new user accounts on first SSO login</span>
+        </label>
+        <button disabled={busy} style={{ marginTop: "20px" }}>
+          {busy ? "Saving…" : "Save SSO Settings"}
+        </button>
+      </form>
+    </section>
+  );
+}
+
 function SettingsView({
   admin,
   authSecret,
@@ -1853,6 +2041,7 @@ function SettingsView({
         {admin && (
           <nav className="settings-nav admin-main-tabs" aria-label="Administration sections">
             <a href="#server">Server</a>
+            <a href="#sso">Single Sign-On</a>
             <a href="#users">Users</a>
             <a href="#teams">Teams</a>
             <a href="#audit">Audit log</a>
@@ -1896,6 +2085,7 @@ function SettingsView({
                 {status ? (status.ready ? "OK" : "failed") : "checking…"}
               </p>
             </section>
+            <AdminSSO />
             <section id="users" className="config-card">
               <h2>Users</h2>
               <AdminCreateUser

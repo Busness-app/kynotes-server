@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -137,7 +138,7 @@ func TestSSOFullFlow(t *testing.T) {
 		AutoProvision: true,
 	})
 
-	router := NewRouter(logging.New("error", "json"), 1048576, func() bool { return true }, db, cfg)
+	router := NewRouter(logging.New(io.Discard, "error", "json"), 1048576, func() bool { return true }, db, cfg)
 
 	// 1. Initiate Login
 	loginReq := httptest.NewRequest("GET", "/api/v1/auth/oidc/login", nil)
@@ -217,7 +218,7 @@ func TestDirectorySyncWebhook(t *testing.T) {
 		HMACSecret: secret,
 	})
 
-	router := NewRouter(logging.New("error", "json"), 1048576, func() bool { return true }, db, cfg)
+	router := NewRouter(logging.New(io.Discard, "error", "json"), 1048576, func() bool { return true }, db, cfg)
 
 	// 1. Create user event
 	eventPayload := map[string]any{
@@ -290,10 +291,21 @@ func TestAdminSSOAndPairing(t *testing.T) {
 	db, cfg := setupTestDB(t)
 	adminID, _ := createAdminUser(t, db)
 
-	// Mint admin session
-	sess, err := auth.MintSession(db, httptest.NewRecorder(), adminID, true, time.Now().UTC())
+	// Mint admin session and get cookies
+	mintRec := httptest.NewRecorder()
+	sess, err := auth.MintSession(db, mintRec, adminID, true, time.Now().UTC())
 	if err != nil {
 		t.Fatalf("failed to mint session: %v", err)
+	}
+
+	var sessionCookie, csrfCookie *http.Cookie
+	for _, c := range mintRec.Result().Cookies() {
+		if c.Name == "kynotes_session" {
+			sessionCookie = c
+		}
+		if c.Name == "csrf_token" {
+			csrfCookie = c
+		}
 	}
 
 	// Mock KySignOn Server for System Pairing
@@ -318,7 +330,7 @@ func TestAdminSSOAndPairing(t *testing.T) {
 	}))
 	defer mockKySignOn.Close()
 
-	router := NewRouter(logging.New("error", "json"), 1048576, func() bool { return true }, db, cfg)
+	router := NewRouter(logging.New(io.Discard, "error", "json"), 1048576, func() bool { return true }, db, cfg)
 
 	// Call POST /api/v1/admin/sso/pair
 	pairBody := map[string]string{
@@ -328,8 +340,9 @@ func TestAdminSSOAndPairing(t *testing.T) {
 	pairJSON, _ := json.Marshal(pairBody)
 	req := httptest.NewRequest("POST", "/api/v1/admin/sso/pair", bytes.NewReader(pairJSON))
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-CSRF-Token", sess.CSRFToken)
-	req.AddCookie(&http.Cookie{Name: "kynotes_session", Value: sess.RawToken})
+	req.Header.Set("X-CSRF-Token", sess.CSRF)
+	req.AddCookie(sessionCookie)
+	req.AddCookie(csrfCookie)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
@@ -345,7 +358,7 @@ func TestAdminSSOAndPairing(t *testing.T) {
 
 	// Verify GET /api/v1/admin/sso returns paired configuration
 	getReq := httptest.NewRequest("GET", "/api/v1/admin/sso", nil)
-	getReq.AddCookie(&http.Cookie{Name: "kynotes_session", Value: sess.RawToken})
+	getReq.AddCookie(sessionCookie)
 	getRec := httptest.NewRecorder()
 	router.ServeHTTP(getRec, getReq)
 

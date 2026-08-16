@@ -42,6 +42,21 @@ export async function login(username: string, authSecret: string) {
   });
 }
 
+export type SSOSettings = {
+  enabled: boolean;
+  issuerUrl: string;
+  clientId: string;
+  clientSecret?: string;
+  redirectUri?: string;
+  autoProvision: boolean;
+  hmacSecret?: string;
+};
+
+export const ssoConfig = () => request<{ enabled: boolean; issuerUrl: string; clientId: string }>("/api/v1/auth/sso-config");
+export const adminSSO = () => request<SSOSettings>("/api/v1/admin/sso");
+export const saveAdminSSO = (settings: SSOSettings) => request<SSOSettings>("/api/v1/admin/sso", { method: "POST", body: JSON.stringify(settings) });
+export const pairAdminSSO = (issuerUrl: string, pairingToken: string, callbackUrl?: string) => request<{ success: boolean; systemId: string; settings: SSOSettings }>("/api/v1/admin/sso/pair", { method: "POST", body: JSON.stringify({ issuerUrl, pairingToken, callbackUrl }) });
+
 export const session = () => request<Session>("/api/v1/auth/session");
 export const serverTheme = () => request<{ defaultTheme: string }>("/api/v1/theme");
 export const logout = () => request<void>("/api/v1/auth/logout", { method: "POST" });
