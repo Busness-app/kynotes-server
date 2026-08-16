@@ -1,6 +1,11 @@
 import type { JSONContent } from "@tiptap/core";
+import { MarkdownManager } from "@tiptap/markdown";
+import StarterKit from "@tiptap/starter-kit";
+import Image from "@tiptap/extension-image";
+import Link from "@tiptap/extension-link";
 
 export const NOTE_DOCUMENT_FORMAT = "kynotes.tiptap.v1";
+const markdownManager = new MarkdownManager({ extensions: [StarterKit, Image, Link] });
 
 export type NoteDocument = {
   format: typeof NOTE_DOCUMENT_FORMAT;
@@ -49,16 +54,10 @@ export async function normalizeNoteBody(body: string): Promise<string> {
   }
   if (!body) return stringifyNoteDocument(emptyNoteDocument().document);
   try {
-    const [{ MarkdownManager }, { default: StarterKit }, { default: Image }, { default: Link }] = await Promise.all([
-      import("@tiptap/markdown"),
-      import("@tiptap/starter-kit"),
-      import("@tiptap/extension-image"),
-      import("@tiptap/extension-link"),
-    ]);
-    const document = new MarkdownManager({ extensions: [StarterKit, Image, Link] }).parse(body);
+    const document = markdownManager.parse(body);
     if (document.type === "doc") return stringifyNoteDocument(document);
-  } catch {
-    /* Preserve content as plain text if legacy Markdown cannot be parsed. */
+  } catch (error) {
+    throw new Error(`Unable to convert saved note: ${error instanceof Error ? error.message : "invalid document"}`);
   }
   return stringifyNoteDocument(parseNoteDocument(body).document);
 }
