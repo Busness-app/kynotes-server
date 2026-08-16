@@ -279,6 +279,7 @@ function Workspace({
   const [syncStatus, setSyncStatus] = useState<"saved" | "local" | "syncing" | "attention">("saved");
   const draining = useRef(false);
   const drainingUploads = useRef(false);
+  const saveChain = useRef(Promise.resolve());
   const syncChannel = useRef<BroadcastChannel | null>(null);
   const selectedNoteRef = useRef<Note | null>(null);
   selectedNoteRef.current = selectedNote;
@@ -717,7 +718,7 @@ function Workspace({
       setBusy(false);
     }
   }
-  async function save(note: Note, automatic = false) {
+  async function saveNow(note: Note, automatic = false) {
     if (!selected) return;
     if (!automatic) setBusy(true);
     try {
@@ -750,10 +751,30 @@ function Workspace({
         setLastSavedAt(savedAt);
         setSyncStatus("saved");
         setNotes((value) =>
-          value.map((entry) => (entry.id === saved.id ? saved : entry)),
+          value.map((entry) =>
+            entry.id === saved.id && entry.body === note.body && entry.title === note.title
+              ? saved
+              : entry,
+          ),
         );
-        setSelectedNote(saved);
-        setDirty(false);
+        // An edit may have landed while the request was in flight. Never let
+        // an older response replace that newer document in memory.
+        if (
+          selectedNoteRef.current?.id === saved.id &&
+          selectedNoteRef.current.title === note.title &&
+          selectedNoteRef.current.body === note.body
+        ) {
+          setSelectedNote(saved);
+          setDirty(false);
+        } else if (selectedNoteRef.current?.id === saved.id) {
+          // Carry the server's new version forward without replacing the
+          // newer local document that is waiting to be saved next.
+          setSelectedNote((current) =>
+            current?.id === saved.id
+              ? { ...current, version: saved.version, updatedAt: saved.updatedAt }
+              : current,
+          );
+        }
       } catch (error) {
         if (error instanceof APIRequestError && error.code === "version_conflict") {
           setConflicted((value) => new Set(value).add(note.id));
@@ -771,6 +792,19 @@ function Workspace({
     } finally {
       if (!automatic) setBusy(false);
     }
+  }
+
+  function save(note: Note, automatic = false) {
+    const queued = saveChain.current.then(() => {
+      const current = selectedNoteRef.current;
+      if (!current || current.id !== note.id) return;
+      // Use the latest in-memory note when an older autosave was waiting in
+      // the chain. This keeps the server request/version aligned with the
+      // document currently shown in the editor.
+      return saveNow(current, automatic);
+    });
+    saveChain.current = queued.catch(() => {});
+    return queued;
   }
 
   async function drainQueue() {
