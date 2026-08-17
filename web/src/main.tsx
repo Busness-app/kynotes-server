@@ -256,9 +256,14 @@ function Login({
     setBusy(true);
     try {
       const name = username.trim() || "admin";
-      const salt = randomLoginSalt();
-      const authSecret = await deriveAuthSecret(password, salt, 600000);
-      const result = await setupInit(name, password, authSecret);
+      const params = await loginParams(name).catch(() => ({
+        loginSalt: randomLoginSalt(),
+        iterations: 600000,
+      }));
+      const salt = params.loginSalt || randomLoginSalt();
+      const iterations = params.iterations || 600000;
+      const authSecret = await deriveAuthSecret(password, salt, iterations);
+      const result = await setupInit(name, password, authSecret, salt, iterations);
       sessionStorage.setItem("kynotes-last-username", name);
       onLogin({ username: name, authSecret, user: result.user });
       setPassword("");

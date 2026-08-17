@@ -59,6 +59,8 @@ func AuthRoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config) {
 			Username   string `json:"username"`
 			Password   string `json:"password"`
 			AuthSecret string `json:"authSecret"`
+			LoginSalt  string `json:"loginSalt"`
+			Iterations int    `json:"iterations"`
 		}
 		if json.NewDecoder(r.Body).Decode(&in) != nil {
 			WriteError(w, r, 400, "invalid_request", "invalid request")
@@ -70,8 +72,15 @@ func AuthRoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config) {
 			username = "admin"
 		}
 
-		salt := auth.SyntheticLoginSalt(cfg.Secrets.ServerSaltKey, username)
-		iterations := 600000
+		salt := in.LoginSalt
+		if salt == "" {
+			salt = auth.SyntheticLoginSalt(cfg.Secrets.ServerSaltKey, username)
+		}
+		iterations := in.Iterations
+		if iterations < 100000 || iterations > 1000000 {
+			iterations = 600000
+		}
+
 		authSecret := in.AuthSecret
 		if authSecret == "" && in.Password != "" {
 			var err error

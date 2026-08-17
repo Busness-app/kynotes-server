@@ -34,9 +34,16 @@ export async function checkSetup() {
   return request<{ setupRequired: boolean }>("/api/v1/setup");
 }
 
-export async function setupInit(username: string, password: string, authSecret: string) {
+export async function setupInit(
+  username: string,
+  password?: string,
+  authSecret?: string,
+  loginSalt?: string,
+  iterations?: number,
+) {
   return request<{ ok: boolean; user: User; expiresAt: string; hardExpiresAt: string }>("/api/v1/setup", {
-    method: "POST", body: JSON.stringify({ username, password, authSecret }),
+    method: "POST",
+    body: JSON.stringify({ username, password, authSecret, loginSalt, iterations }),
   });
 }
 

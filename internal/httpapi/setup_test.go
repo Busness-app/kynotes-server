@@ -91,4 +91,40 @@ func TestSetupFlow(t *testing.T) {
 	if res2.SetupRequired {
 		t.Fatal("expected setupRequired=false after setup completed")
 	}
+
+	// 5. Subsequent login with admin credentials succeeds
+	loginParamsPayload, _ := json.Marshal(map[string]string{"username": "admin"})
+	req5 := httptest.NewRequest("POST", "/api/v1/auth/login-params", bytes.NewReader(loginParamsPayload))
+	req5.Header.Set("Content-Type", "application/json")
+	rec5 := httptest.NewRecorder()
+	mux.ServeHTTP(rec5, req5)
+
+	if rec5.Code != http.StatusOK {
+		t.Fatalf("expected 200 from login-params, got %d: %s", rec5.Code, rec5.Body.String())
+	}
+	var lp struct {
+		LoginSalt  string `json:"loginSalt"`
+		Iterations int    `json:"iterations"`
+	}
+	if err := json.NewDecoder(rec5.Body).Decode(&lp); err != nil {
+		t.Fatalf("failed to decode login-params: %v", err)
+	}
+
+	loginAuthSecret, err := auth.DeriveAuthSecret("AdminMasterPassword123!", lp.LoginSalt, lp.Iterations)
+	if err != nil {
+		t.Fatalf("failed to derive login auth secret: %v", err)
+	}
+
+	loginPayload, _ := json.Marshal(map[string]string{
+		"username":   "admin",
+		"authSecret": loginAuthSecret,
+	})
+	req6 := httptest.NewRequest("POST", "/api/v1/auth/login", bytes.NewReader(loginPayload))
+	req6.Header.Set("Content-Type", "application/json")
+	rec6 := httptest.NewRecorder()
+	mux.ServeHTTP(rec6, req6)
+
+	if rec6.Code != http.StatusOK {
+		t.Fatalf("expected 200 from login, got %d: %s", rec6.Code, rec6.Body.String())
+	}
 }
