@@ -7,11 +7,12 @@ export type PendingUpload = { uploadId: string; containerID: string; objectID: s
 
 function openDatabase(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
-    const request = indexedDB.open(databaseName, 3);
+    const request = indexedDB.open(databaseName, 4);
     request.onupgradeneeded = () => {
       if (!request.result.objectStoreNames.contains(storeName)) request.result.createObjectStore(storeName, { keyPath: "id" });
       if (!request.result.objectStoreNames.contains("pending")) request.result.createObjectStore("pending", { keyPath: "id" });
       if (!request.result.objectStoreNames.contains("uploads")) request.result.createObjectStore("uploads", { keyPath: "uploadId" });
+      if (!request.result.objectStoreNames.contains("keys")) request.result.createObjectStore("keys", { keyPath: "username" });
     };
     request.onsuccess = () => {
       const db = request.result;
@@ -101,5 +102,50 @@ export async function pendingUploads(): Promise<PendingUpload[]> {
 export async function clearUpload(uploadId: string): Promise<void> {
   const db = await openDatabase();
   await new Promise<void>((resolve, reject) => { const request = db.transaction("uploads", "readwrite").objectStore("uploads").delete(uploadId); request.onsuccess = () => resolve(); request.onerror = () => reject(request.error); });
+  db.close();
+}
+
+export async function storeDeviceKey(username: string, authSecret: string): Promise<void> {
+  const db = await openDatabase();
+  await new Promise<void>((resolve, reject) => {
+    const request = db.transaction("keys", "readwrite").objectStore("keys").put({
+      username,
+      authSecret,
+      updatedAt: new Date().toISOString(),
+    });
+    request.onsuccess = () => resolve();
+    request.onerror = () => reject(request.error);
+  });
+  db.close();
+}
+
+export async function getDeviceKey(username: string): Promise<string | undefined> {
+  const db = await openDatabase();
+  const result = await new Promise<{ username: string; authSecret: string } | undefined>((resolve, reject) => {
+    const request = db.transaction("keys").objectStore("keys").get(username);
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+  db.close();
+  return result?.authSecret;
+}
+
+export async function clearDeviceKey(username: string): Promise<void> {
+  const db = await openDatabase();
+  await new Promise<void>((resolve, reject) => {
+    const request = db.transaction("keys", "readwrite").objectStore("keys").delete(username);
+    request.onsuccess = () => resolve();
+    request.onerror = () => reject(request.error);
+  });
+  db.close();
+}
+
+export async function clearAllDeviceKeys(): Promise<void> {
+  const db = await openDatabase();
+  await new Promise<void>((resolve, reject) => {
+    const request = db.transaction("keys", "readwrite").objectStore("keys").clear();
+    request.onsuccess = () => resolve();
+    request.onerror = () => reject(request.error);
+  });
   db.close();
 }

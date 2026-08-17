@@ -88,9 +88,10 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   client path.
 - `web/` shows server commit receipts as a short `Last Committed Ns ago` toast
   that expires after 15 seconds.
-- `web/` treats a restored HTTP session as locked until the user unlocks the
-  browser again; note creation also attempts its first server save immediately
-  before relying on autosave or the encrypted retry queue.
+- `web/` persists local zero-knowledge device keys in the IndexedDB keys vault upon
+  password login/setup to enable seamless 1-click SSO returns on trusted devices,
+  while providing explicit "Forget this device" controls to clear stored secrets;
+  sessions without a cached device key prompt for the master password once.
 - `web/` surfaces server-confirmed save times and treats `version_conflict`
   responses separately from offline failures, preserving the encrypted local
   draft without endlessly retrying a stale version.

@@ -76,8 +76,10 @@ import {
   type NotePayload,
 } from "./crypto";
 import {
+  clearDeviceKey,
   clearQueuedSave,
   deleteNote as deleteCachedNote,
+  getDeviceKey,
   getNote,
   clearUpload,
   pendingSaves,
@@ -85,6 +87,7 @@ import {
   putNote,
   putUpload,
   queueSave,
+  storeDeviceKey,
 } from "./storage";
 import {
   applyStoredTheme,
@@ -133,8 +136,18 @@ function App() {
         })
         .catch(() => {});
     session()
-      .then((res) => {
+      .then(async (res) => {
         setSessionUser(res.user);
+        if (res.user?.username) {
+          const cachedKey = await getDeviceKey(res.user.username).catch(() => undefined);
+          if (cachedKey) {
+            setAuth({
+              username: res.user.username,
+              authSecret: cachedKey,
+              user: res.user,
+            });
+          }
+        }
       })
       .catch(() => {
         setSessionUser(null);
@@ -152,12 +165,25 @@ function App() {
           setSessionUser(null);
         });
       }}
+      onForgetDevice={() => {
+        void clearDeviceKey(auth.username).then(() => {
+          void logout().finally(() => {
+            setAuth(null);
+            setSessionUser(null);
+          });
+        });
+      }}
     />
   ) : (
     <Login
       sessionUser={sessionUser}
       onClearSession={() => {
         void logout().finally(() => setSessionUser(null));
+      }}
+      onForgetDevice={(username) => {
+        void clearDeviceKey(username).then(() => {
+          void logout().finally(() => setSessionUser(null));
+        });
       }}
       onLogin={setAuth}
     />
@@ -213,10 +239,12 @@ function Login({
   onLogin,
   sessionUser,
   onClearSession,
+  onForgetDevice,
 }: {
   onLogin: (auth: AuthState) => void;
   sessionUser?: Session["user"] | null;
   onClearSession?: () => void;
+  onForgetDevice?: (username: string) => void;
 }) {
   const [setupRequired, setSetupRequired] = useState(false);
   const [username, setUsername] = useState(() => sessionUser?.username ?? sessionStorage.getItem("kynotes-last-username") ?? "");
@@ -264,6 +292,7 @@ function Login({
       const iterations = params.iterations || 600000;
       const authSecret = await deriveAuthSecret(password, salt, iterations);
       const result = await setupInit(name, password, authSecret, salt, iterations);
+      await storeDeviceKey(name, authSecret);
       sessionStorage.setItem("kynotes-last-username", name);
       onLogin({ username: name, authSecret, user: result.user });
       setPassword("");
@@ -287,6 +316,7 @@ function Login({
         params.loginSalt,
         params.iterations,
       );
+      await storeDeviceKey(activeName, authSecret);
       if (sessionUser) {
         // If SSO session is active, verify credentials or enter directly
         try {
@@ -394,13 +424,16 @@ function Login({
               <div style={{ fontSize: "14px", fontWeight: 600, color: "var(--ink-strong)" }}>
                 {sessionUser.username || sessionUser.id}
               </div>
+              <div style={{ fontSize: "12px", color: "var(--ink)", marginTop: "4px" }}>
+                Enter your master password once to unlock and trust this device for 1-click SSO.
+              </div>
             </div>
             {onClearSession && (
               <button
                 type="button"
                 className="secondary small"
                 onClick={onClearSession}
-                style={{ fontSize: "11px", padding: "4px 8px" }}
+                style={{ fontSize: "11px", padding: "4px 8px", whiteSpace: "nowrap" }}
               >
                 Sign out SSO
               </button>
@@ -473,9 +506,11 @@ function Login({
 function Workspace({
   auth,
   onLogout,
+  onForgetDevice,
 }: {
   auth: AuthState;
   onLogout: () => void;
+  onForgetDevice?: () => void;
 }) {
   const [items, setItems] = useState<Container[]>([]);
   const [names, setNames] = useState<Record<string, string>>({});
@@ -1694,6 +1729,7 @@ function Workspace({
             authSecret={auth.authSecret}
             username={auth.username}
             onBack={() => setView("workspace")}
+            onForgetDevice={onForgetDevice}
           />
         )}
       </>
@@ -1745,6 +1781,7 @@ function PasswordSettings({ username }: { username: string }) {
         newLoginSalt,
         iterations: 600000,
       });
+      await storeDeviceKey(name, newAuthSecret);
       setCurrent("");
       setNext("");
       setStatus(
@@ -2153,11 +2190,13 @@ function SettingsView({
   authSecret,
   onBack,
   username,
+  onForgetDevice,
 }: {
   admin: boolean;
   authSecret: string;
   onBack: () => void;
   username: string;
+  onForgetDevice?: () => void;
 }) {
   const [theme, setTheme] = useState<ThemeName>(getStoredTheme());
   const [status, setStatus] = useState<{
@@ -2200,6 +2239,7 @@ function SettingsView({
           <nav className="settings-nav">
             <a href="#appearance">Appearance</a>
             <a href="#password">Password</a>
+            <a href="#device">Trusted Device</a>
           </nav>
         )}
       </aside>
@@ -2247,6 +2287,21 @@ function SettingsView({
             <div id="password">
               <PasswordSettings username={username} />
             </div>
+            <section id="device" className="config-card">
+              <h2>Trusted Device & SSO</h2>
+              <p className="config-muted">
+                This browser holds your local zero-knowledge encryption key to allow instant 1-click SSO login without entering a password.
+              </p>
+              {onForgetDevice && (
+                <button
+                  type="button"
+                  className="secondary danger"
+                  onClick={onForgetDevice}
+                >
+                  Forget this device & sign out
+                </button>
+              )}
+            </section>
           </>
         )}
         {admin && (
