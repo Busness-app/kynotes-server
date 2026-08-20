@@ -125,3 +125,4 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   update the checked-in embed after frontend bundle changes.
 - Verification for server changes: `go test -race ./...`, `go vet ./...`, and
   `gofmt -l .`.
+- `zero_code_pairing_handoff_spec.md`: contract for pairing this service to KyRecovery with an ephemeral 6-digit PIN, then pushing backups plus a declarative verification recipe. This repo owns the client half (`POST /api/pairing/claim`, `POST /api/backup/push`); KyRecovery owns the spec.
