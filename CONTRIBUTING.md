@@ -43,4 +43,4 @@ verification performed, security impact, and any known limitations.
 
 ## Licence
 
-KyNotes is licensed under the GNU Affero General Public License v3.0.
+KyNotes is licensed under the MIT License.
