@@ -3,7 +3,7 @@ package httpapi
 import (
 	"database/sql"
 	"encoding/json"
-	"github.com/yoshiofthewire/kynotes-server/internal/auth"
+	"github.com/Busness-app/kynotes-server/internal/auth"
 	"net/http"
 	"strings"
 	"sync"

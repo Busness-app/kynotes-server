@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/yoshiofthewire/kynotes-server/internal/config"
-	"github.com/yoshiofthewire/kynotes-server/internal/logging"
+	"github.com/Busness-app/kynotes-server/internal/config"
+	"github.com/Busness-app/kynotes-server/internal/logging"
 )
 
 func testRouter(max int64) http.Handler {

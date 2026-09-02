@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/yoshiofthewire/kynotes-server/internal/ids"
-	"github.com/yoshiofthewire/kynotes-server/internal/logging"
+	"github.com/Busness-app/kynotes-server/internal/ids"
+	"github.com/Busness-app/kynotes-server/internal/logging"
 )
 
 type requestIDKey struct{}

@@ -7,8 +7,8 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
-	"github.com/yoshiofthewire/kynotes-server/internal/auth"
-	"github.com/yoshiofthewire/kynotes-server/internal/ids"
+	"github.com/Busness-app/kynotes-server/internal/auth"
+	"github.com/Busness-app/kynotes-server/internal/ids"
 	"net/http"
 	"time"
 )

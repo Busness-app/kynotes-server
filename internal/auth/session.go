@@ -10,7 +10,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/yoshiofthewire/kynotes-server/internal/ids"
+	"github.com/Busness-app/kynotes-server/internal/ids"
 )
 
 const sessionCookie = "kynotes_session"

@@ -3,7 +3,7 @@ package storage
 import (
 	"database/sql"
 	"fmt"
-	"github.com/yoshiofthewire/kynotes-server/internal/blobstore"
+	"github.com/Busness-app/kynotes-server/internal/blobstore"
 )
 
 func Consistency(db *sql.DB, blobs *blobstore.Store) error {

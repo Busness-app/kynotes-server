@@ -17,12 +17,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/yoshiofthewire/kynotes-server/internal/auth"
-	"github.com/yoshiofthewire/kynotes-server/internal/config"
-	"github.com/yoshiofthewire/kynotes-server/internal/ids"
-	"github.com/yoshiofthewire/kynotes-server/internal/logging"
-	"github.com/yoshiofthewire/kynotes-server/internal/sso"
-	"github.com/yoshiofthewire/kynotes-server/internal/storage"
+	"github.com/Busness-app/kynotes-server/internal/auth"
+	"github.com/Busness-app/kynotes-server/internal/config"
+	"github.com/Busness-app/kynotes-server/internal/ids"
+	"github.com/Busness-app/kynotes-server/internal/logging"
+	"github.com/Busness-app/kynotes-server/internal/sso"
+	"github.com/Busness-app/kynotes-server/internal/storage"
 )
 
 func setupTestDB(t *testing.T) (*sql.DB, config.Config) {

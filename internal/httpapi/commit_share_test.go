@@ -16,11 +16,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/yoshiofthewire/kynotes-server/internal/auth"
-	"github.com/yoshiofthewire/kynotes-server/internal/blobstore"
-	"github.com/yoshiofthewire/kynotes-server/internal/config"
-	"github.com/yoshiofthewire/kynotes-server/internal/logging"
-	"github.com/yoshiofthewire/kynotes-server/internal/storage"
+	"github.com/Busness-app/kynotes-server/internal/auth"
+	"github.com/Busness-app/kynotes-server/internal/blobstore"
+	"github.com/Busness-app/kynotes-server/internal/config"
+	"github.com/Busness-app/kynotes-server/internal/logging"
+	"github.com/Busness-app/kynotes-server/internal/storage"
 )
 
 type shareFixture struct {

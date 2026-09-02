@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/yoshiofthewire/kynotes-server/internal/blobstore"
+	"github.com/Busness-app/kynotes-server/internal/blobstore"
 )
 
 func openContract(t *testing.T) *Store {
