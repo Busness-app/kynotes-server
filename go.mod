@@ -1,4 +1,4 @@
-module github.com/yoshiofthewire/kynotes-server
+module github.com/Busness-app/kynotes-server
 
 go 1.26.6
 

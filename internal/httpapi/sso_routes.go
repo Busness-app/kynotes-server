@@ -15,10 +15,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/yoshiofthewire/kynotes-server/internal/auth"
-	"github.com/yoshiofthewire/kynotes-server/internal/config"
-	"github.com/yoshiofthewire/kynotes-server/internal/ids"
-	"github.com/yoshiofthewire/kynotes-server/internal/sso"
+	"github.com/Busness-app/kynotes-server/internal/auth"
+	"github.com/Busness-app/kynotes-server/internal/config"
+	"github.com/Busness-app/kynotes-server/internal/ids"
+	"github.com/Busness-app/kynotes-server/internal/sso"
 )
 
 const ssoCookieName = "kynotes_sso_state"

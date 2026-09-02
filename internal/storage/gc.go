@@ -2,7 +2,7 @@ package storage
 
 import (
 	"database/sql"
-	"github.com/yoshiofthewire/kynotes-server/internal/blobstore"
+	"github.com/Busness-app/kynotes-server/internal/blobstore"
 	"time"
 )
 

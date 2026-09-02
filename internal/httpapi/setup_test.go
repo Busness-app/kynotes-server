@@ -7,7 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/yoshiofthewire/kynotes-server/internal/auth"
+	"github.com/Busness-app/kynotes-server/internal/auth"
 )
 
 func TestSetupFlow(t *testing.T) {
