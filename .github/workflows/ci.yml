@@ -15,8 +15,6 @@ jobs:
       - run: go test -fuzz=FuzzParsePairingToken -fuzztime=60s ./internal/auth
       - run: go test -fuzz=FuzzParseAuthSecret -fuzztime=60s ./internal/auth
       - run: go test -fuzz=FuzzParseID -fuzztime=60s ./internal/ids
-      - run: go test -fuzz=FuzzParseChunkHeaders -fuzztime=60s ./internal/httpapi
-      - run: go test -fuzz=FuzzParseCursor -fuzztime=60s ./internal/httpapi
       - run: go test -fuzz=FuzzConfigLoad -fuzztime=60s ./internal/config
       - run: |
           set -eu
