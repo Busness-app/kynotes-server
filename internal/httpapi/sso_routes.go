@@ -245,16 +245,20 @@ func SSORoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config, ssoStore *sso.
 			return
 		}
 
-		// Verify HMAC signature if secret is configured
-		sigHeader := r.Header.Get("X-KySignOn-Signature")
-		if settings.HMACSecret != "" && sigHeader != "" {
-			mac := hmac.New(sha256.New, []byte(settings.HMACSecret))
-			mac.Write(body)
-			expectedSig := hex.EncodeToString(mac.Sum(nil))
-			if !hmac.Equal([]byte(sigHeader), []byte(expectedSig)) {
-				WriteError(w, r, http.StatusUnauthorized, "invalid_signature", "invalid webhook HMAC signature")
-				return
-			}
+		// This webhook has no session authentication: the signature is the only
+		// control on it, and it can create admins, delete users, and rebind an
+		// account's SSO subject. An absent signature or unconfigured secret must
+		// fail closed.
+		if settings.HMACSecret == "" {
+			WriteError(w, r, http.StatusUnauthorized, "sync_not_configured", "directory sync is not configured")
+			return
+		}
+		mac := hmac.New(sha256.New, []byte(settings.HMACSecret))
+		mac.Write(body)
+		expectedSig := hex.EncodeToString(mac.Sum(nil))
+		if !hmac.Equal([]byte(r.Header.Get("X-KySignOn-Signature")), []byte(expectedSig)) {
+			WriteError(w, r, http.StatusUnauthorized, "invalid_signature", "invalid webhook HMAC signature")
+			return
 		}
 
 		var event struct {

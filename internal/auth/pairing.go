@@ -42,11 +42,14 @@ func ParsePairingToken(secret, token, userID string, now time.Time) (PairingClai
 	if len(parts) != 2 {
 		return PairingClaims{}, errors.New("invalid token")
 	}
-	p, e := base64.RawURLEncoding.DecodeString(parts[0])
+	// Strict rejects non-canonical encodings. Without it the final character's
+	// unused bits are discarded, so four distinct token strings decode to the same
+	// signature and all verify.
+	p, e := base64.RawURLEncoding.Strict().DecodeString(parts[0])
 	if e != nil {
 		return PairingClaims{}, errors.New("invalid token")
 	}
-	sig, e := base64.RawURLEncoding.DecodeString(parts[1])
+	sig, e := base64.RawURLEncoding.Strict().DecodeString(parts[1])
 	if e != nil {
 		return PairingClaims{}, errors.New("invalid token")
 	}

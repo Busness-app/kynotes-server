@@ -83,9 +83,36 @@ func TestPairingTokenForgedSignatureIsRejected(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	token = token[:len(token)-1] + "x"
-	if _, err = ParsePairingToken(strings.Repeat("s", 32), token, "usr_test", time.Now()); err == nil {
+	// Mutate the decoded signature, not the encoded text: base64's final character
+	// carries unused bits, so swapping it can decode to the same bytes and test
+	// nothing. This asserts the MAC, not the encoder.
+	parts := strings.Split(token, ".")
+	sig, err := base64.RawURLEncoding.Strict().DecodeString(parts[1])
+	if err != nil {
+		t.Fatal(err)
+	}
+	sig[0] ^= 0xFF
+	forged := parts[0] + "." + base64.RawURLEncoding.EncodeToString(sig)
+	if _, err = ParsePairingToken(strings.Repeat("s", 32), forged, "usr_test", time.Now()); err == nil {
 		t.Fatal("forged token accepted")
+	}
+}
+
+// Four encodings of the same signature differ only in the final character's unused
+// bits. Accepting them makes a token malleable, so only the canonical form verifies.
+func TestPairingTokenRejectsNonCanonicalEncoding(t *testing.T) {
+	token, _, err := MintPairingToken(strings.Repeat("s", 32), "usr_test", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []byte{'x', 'y', 'z'} {
+		mutated := token[:len(token)-1] + string(c)
+		if mutated == token {
+			continue
+		}
+		if _, err := ParsePairingToken(strings.Repeat("s", 32), mutated, "usr_test", time.Now()); err == nil {
+			t.Fatalf("non-canonical encoding ending %q was accepted", c)
+		}
 	}
 }
 

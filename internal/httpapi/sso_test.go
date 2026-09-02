@@ -372,3 +372,103 @@ func TestAdminSSOAndPairing(t *testing.T) {
 		t.Fatalf("unexpected sso settings in admin response: %+v", ssoSettings)
 	}
 }
+
+// postSyncEvent sends a directory sync event to path, signing it when secret is non-empty.
+func postSyncEvent(t *testing.T, router http.Handler, path, secret string, payload map[string]any) int {
+	t.Helper()
+	body, _ := json.Marshal(payload)
+	req := httptest.NewRequest("POST", path, bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	if secret != "" {
+		mac := hmac.New(sha256.New, []byte(secret))
+		mac.Write(body)
+		req.Header.Set("X-KySignOn-Signature", hex.EncodeToString(mac.Sum(nil)))
+	}
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	return rec.Code
+}
+
+// The webhook has no session authentication, so the signature is the only control on it.
+func TestDirectorySyncRejectsUnsignedEvents(t *testing.T) {
+	db, cfg := setupTestDB(t)
+	ssoStore := sso.NewStore(db)
+	const secret = "shared-hmac-secret-123"
+	_ = ssoStore.Save(sso.SSOSettings{Enabled: true, HMACSecret: secret})
+	router := NewRouter(logging.New(io.Discard, "error", "json"), 1048576, func() bool { return true }, db, cfg)
+
+	event := map[string]any{
+		"eventId": "ev_x", "eventType": "user.created",
+		"user": map[string]any{"id": "attacker-sub", "username": "mallory", "role": "admin"},
+	}
+
+	// Every alias must reject: omitting the header is the whole attack.
+	for _, path := range []string{"/api/v1/sync/events", "/api/sync/events", "/sync/events"} {
+		if code := postSyncEvent(t, router, path, "", event); code != http.StatusUnauthorized {
+			t.Errorf("unsigned event on %s: got %d, want 401", path, code)
+		}
+		if code := postSyncEvent(t, router, path, "wrong-secret", event); code != http.StatusUnauthorized {
+			t.Errorf("badly signed event on %s: got %d, want 401", path, code)
+		}
+	}
+
+	var n int
+	_ = db.QueryRow(`SELECT COUNT(*) FROM users WHERE username='mallory'`).Scan(&n)
+	if n != 0 {
+		t.Fatal("an unsigned sync event created an admin account")
+	}
+
+	if code := postSyncEvent(t, router, "/api/v1/sync/events", secret, event); code != http.StatusOK {
+		t.Fatalf("correctly signed event: got %d, want 200", code)
+	}
+	_ = db.QueryRow(`SELECT COUNT(*) FROM users WHERE username='mallory'`).Scan(&n)
+	if n != 1 {
+		t.Fatal("correctly signed event did not replicate the user")
+	}
+}
+
+// With no secret configured the endpoint must fail closed, not accept everything.
+func TestDirectorySyncFailsClosedWithoutSecret(t *testing.T) {
+	db, cfg := setupTestDB(t)
+	ssoStore := sso.NewStore(db)
+	_ = ssoStore.Save(sso.SSOSettings{Enabled: true, HMACSecret: ""})
+	router := NewRouter(logging.New(io.Discard, "error", "json"), 1048576, func() bool { return true }, db, cfg)
+
+	code := postSyncEvent(t, router, "/api/v1/sync/events", "", map[string]any{
+		"eventId": "ev_y", "eventType": "user.created",
+		"user": map[string]any{"id": "s", "username": "nobody", "role": "admin"},
+	})
+	if code != http.StatusUnauthorized {
+		t.Errorf("event with no secret configured: got %d, want 401", code)
+	}
+	var n int
+	_ = db.QueryRow(`SELECT COUNT(*) FROM users WHERE username='nobody'`).Scan(&n)
+	if n != 0 {
+		t.Fatal("sync event was applied with no secret configured")
+	}
+}
+
+// syncSingleUser writes sso_subject on update, so an unsigned event could rebind an
+// existing admin to an attacker-controlled OIDC identity: account takeover, not just
+// privilege escalation.
+func TestDirectorySyncCannotRebindAdminSSOSubject(t *testing.T) {
+	db, cfg := setupTestDB(t)
+	createAdminUser(t, db)
+	ssoStore := sso.NewStore(db)
+	_ = ssoStore.Save(sso.SSOSettings{Enabled: true, HMACSecret: "shared-hmac-secret-123"})
+	router := NewRouter(logging.New(io.Discard, "error", "json"), 1048576, func() bool { return true }, db, cfg)
+
+	code := postSyncEvent(t, router, "/api/v1/sync/events", "", map[string]any{
+		"eventId": "ev_z", "eventType": "user.updated",
+		"user": map[string]any{"id": "attacker-controlled-sub", "username": "admin", "role": "admin"},
+	})
+	if code != http.StatusUnauthorized {
+		t.Errorf("unsigned rebinding event: got %d, want 401", code)
+	}
+
+	var subject string
+	_ = db.QueryRow(`SELECT COALESCE(sso_subject,'') FROM users WHERE username='admin'`).Scan(&subject)
+	if subject == "attacker-controlled-sub" {
+		t.Fatal("an unsigned sync event rebound the admin account to an attacker's SSO identity")
+	}
+}
