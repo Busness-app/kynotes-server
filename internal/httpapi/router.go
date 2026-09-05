@@ -3,7 +3,6 @@ package httpapi
 import (
 	"database/sql"
 	"encoding/json"
-	"net"
 	"net/http"
 	"strings"
 
@@ -78,11 +77,6 @@ func NewRouter(log *logging.Logger, max int64, ready func() bool, extras ...any)
 		}
 		static.ServeHTTP(w, r)
 	}))
-	var proxies []*net.IPNet
-	for _, p := range cfg.Server.TrustedProxies {
-		if _, n, e := net.ParseCIDR(p); e == nil {
-			proxies = append(proxies, n)
-		}
-	}
+	proxies := parseTrustedProxies(cfg.Server.TrustedProxies)
 	return SecurityHeaders(MiddlewareWithProxies(log, max, proxies)(AccessLog(log, rateLimitMiddleware(cfg, db, mux))))
 }

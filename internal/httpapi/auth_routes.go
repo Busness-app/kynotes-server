@@ -424,16 +424,20 @@ func clientIP(r *http.Request) string {
 		return r.RemoteAddr
 	}
 	if ip := net.ParseIP(host); ip != nil {
-		if v4 := ip.To4(); v4 != nil {
-			return v4.String()
-		}
-		ip = ip.To16()
-		for i := 8; i < len(ip); i++ {
-			ip[i] = 0
-		}
-		return ip.String()
+		return normalizeClientIP(ip)
 	}
 	return host
+}
+
+func normalizeClientIP(ip net.IP) string {
+	if v4 := ip.To4(); v4 != nil {
+		return v4.String()
+	}
+	ip = ip.To16()
+	for i := 8; i < len(ip); i++ {
+		ip[i] = 0
+	}
+	return ip.String()
 }
 
 func writeJSON(w http.ResponseWriter, v any) {

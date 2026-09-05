@@ -320,3 +320,7 @@ OIDC login admission is limited per client IP across route aliases. Pending tran
 are bounded with oldest-expiry eviction; capacity does not globally refuse new logins,
 and eviction invalidates only that pending callback. CLI server mode rejects positional
 commands after explicit subcommand dispatch, including the removed plaintext `backup` name.
+
+IP-keyed rate limits resolve forwarded client identity only behind configured trusted
+proxies, using the right-most untrusted X-Forwarded-For address. Untrusted senders and
+malformed suffixes fall back to socket identity. Session-keyed limits remain user-keyed.

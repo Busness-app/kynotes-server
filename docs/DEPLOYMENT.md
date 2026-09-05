@@ -158,3 +158,10 @@ login store evicts its oldest entry when full; an evicted login must start again
 Removed `backup` commands fail with migration guidance rather than starting the server.
 Use `copy-data-dir` for the old local copy, `restore-data-dir` for its restore, and
 `restore --in CAPSULE --to EMPTY_DIR` for sealed recovery. Server mode accepts flags only.
+
+With `server.behind_proxy: true`, IP-keyed rate limits use X-Forwarded-For only when
+its immediate socket peer is in `server.trusted_proxies`. The right-most untrusted
+address identifies the client; untrusted peers and malformed suffixes fall back to the
+socket address. Trusted proxies must append the observed peer address or replace the
+header with the observed client, never blindly pass client-supplied headers. Configure
+only actual proxy networks, not all Internet addresses. IPv6 identities retain /64 grouping.

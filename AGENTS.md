@@ -167,3 +167,9 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
 - CLI server mode accepts flags only. Removed `backup` names `copy-data-dir`/`deposit`
   in its error; unknown commands and trailing positional arguments exit before loading
   configuration or starting the server. `TestUnknownSubcommandIsRejected` covers dispatch.
+
+- All IP-keyed rate limits honor X-Forwarded-For only with behind_proxy enabled and
+  a trusted immediate peer. Walk the chain from the right to the first untrusted IP;
+  malformed suffixes fall back to the socket peer. Preserve IPv6 /64 grouping and
+  existing authenticated-user bucket overrides. Verify direct/proxied flood isolation
+  and spoofed/malformed/multiple-header cases in the HTTP API tests.

@@ -248,4 +248,22 @@ func TestSSOLoginSurvivesPendingFlood(t *testing.T) {
 	if got := call(limited, aliases[2], "192.0.2.4"); got.Code != 302 {
 		t.Fatal("one client limited another", got.Code)
 	}
+	cfg.Server.BehindProxy = true
+	cfg.Server.TrustedProxies = []string{"127.0.0.1/32"}
+	proxied := rateLimitMiddleware(cfg, db, mux)
+	for i, ip := range []string{"192.0.2.3", "192.0.2.3", "192.0.2.3", "192.0.2.4"} {
+		r := httptest.NewRequest("GET", aliases[i%len(aliases)], nil)
+		r.RemoteAddr = "127.0.0.1:1234"
+		r.Header.Set("X-Forwarded-For", ip)
+		w := httptest.NewRecorder()
+		proxied.ServeHTTP(w, r)
+		want := 302
+		if i == 2 {
+			want = 429
+		}
+		if w.Code != want {
+			t.Fatalf("trusted proxy client %s: got %d want %d", ip, w.Code, want)
+		}
+	}
+
 }
