@@ -1,8 +1,6 @@
 package config
 
 import (
-	"crypto/rand"
-	"encoding/base64"
 	"errors"
 	"fmt"
 	"net"
@@ -12,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Busness-app/ky-primitives/keyfile"
 	"gopkg.in/yaml.v3"
 )
 
@@ -103,24 +102,11 @@ func loadSecrets(c *Config) error {
 		if *dst != "" {
 			continue
 		}
-		path := filepath.Join(dir, name)
-		b, err := os.ReadFile(path)
-		if err == nil {
-			raw, decodeErr := base64.StdEncoding.DecodeString(strings.TrimSpace(string(b)))
-			if decodeErr == nil && len(raw) == 32 {
-				*dst = string(raw)
-			}
-			continue
-		}
-		if !errors.Is(err, os.ErrNotExist) {
-			continue
-		}
-		raw := make([]byte, 32)
-		if _, err = rand.Read(raw); err != nil {
-			return err
-		}
-		if err = os.WriteFile(path, []byte(base64.StdEncoding.EncodeToString(raw)), 0600); err != nil {
-			return err
+		// An existing file that does not decode to 32 bytes is an error, never
+		// replaced and never silently an empty secret.
+		raw, err := keyfile.LoadOrCreateEncoded(filepath.Join(dir, name), 32, keyfile.Base64)
+		if err != nil {
+			return fmt.Errorf("secrets/%s: %w", name, err)
 		}
 		*dst = string(raw)
 	}
