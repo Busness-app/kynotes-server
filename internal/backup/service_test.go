@@ -290,3 +290,52 @@ func TestMirrorUsesCapsuleInventoryDespiteConcurrentGC(t *testing.T) {
 		t.Fatal("missing content not visible", err)
 	}
 }
+
+func TestFailedRunsAdvanceSchedule(t *testing.T) {
+	for _, failure := range []string{"remote", "no_destination", "missing_key", "local"} {
+		t.Run(failure, func(t *testing.T) {
+			svc, key := fixture(t)
+			if err := svc.SetSchedule("system", "test", 900); err != nil {
+				t.Fatal(err)
+			}
+			switch failure {
+			case "remote":
+				svc.client = &recoveryFixture{t: t, key: key, fail: true}
+				if err := svc.Pair(context.Background(), "system", "test", "https://recovery.example", "123456"); err != nil {
+					t.Fatal(err)
+				}
+				svc.cfg.Backup.Dir = ""
+			case "no_destination":
+				svc.cfg.Backup.Dir = ""
+			case "missing_key":
+				if err := os.Remove(filepath.Join(svc.cfg.DataDir, "recovery.pub")); err != nil {
+					t.Fatal(err)
+				}
+			case "local":
+				path := filepath.Join(t.TempDir(), "occupied")
+				if err := os.WriteFile(path, []byte("fixture"), 0600); err != nil {
+					t.Fatal(err)
+				}
+				svc.cfg.Backup.Dir = path
+			}
+			if due, err := svc.Due(time.Now()); err != nil || !due {
+				t.Fatal("fresh run not due", err)
+			}
+			if _, err := svc.Run(context.Background(), "system", "test"); err == nil {
+				t.Fatal("fixture did not fail")
+			}
+			for _, offset := range []time.Duration{0, time.Minute, 14 * time.Minute} {
+				if due, err := svc.Due(time.Now().Add(offset)); err != nil || due {
+					t.Fatal("failed run retried before interval", offset, err)
+				}
+			}
+			restarted := New(svc.cfg, svc.store, "test")
+			if due, err := restarted.Due(time.Now()); err != nil || due {
+				t.Fatal("restart lost failure backoff", err)
+			}
+			if due, err := restarted.Due(time.Now().Add(16 * time.Minute)); err != nil || !due {
+				t.Fatal("failed run never retried", err)
+			}
+		})
+	}
+}

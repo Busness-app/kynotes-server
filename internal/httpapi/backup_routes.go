@@ -22,7 +22,7 @@ func BackupRoutes(mux *http.ServeMux, db *sql.DB, service *backup.Service) {
 	})))
 	mutation := func(path string, handler http.HandlerFunc) {
 		mux.Handle(path, auth.RequireStepUp(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if r.Method != "GET" && auth.CheckCSRF(r) != nil {
+			if auth.CheckCSRF(r) != nil {
 				WriteError(w, r, 403, "csrf_failed", "CSRF validation failed")
 				return
 			}
@@ -102,7 +102,7 @@ func BackupRoutes(mux *http.ServeMux, db *sql.DB, service *backup.Service) {
 		}
 		writeJSON(w, map[string]any{"result": result, "error_code": code})
 	})
-	mutation("GET /api/v1/admin/backup/export-capsule", func(w http.ResponseWriter, r *http.Request) {
+	mutation("POST /api/v1/admin/backup/export-capsule", func(w http.ResponseWriter, r *http.Request) {
 		actor, _ := auth.SessionFromContext(r)
 		raw, m, err := service.Export(r.Context(), actor.UserID, RequestID(r))
 		if err != nil {

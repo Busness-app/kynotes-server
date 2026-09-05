@@ -276,6 +276,10 @@ Security tests must verify that server logs, API responses, SQLite records,
 blobs, backups, and notifications contain no private plaintext or private
 keys.
 
+Capsule export is an admin/step-up/CSRF-protected POST, because snapshotting and sealing
+are expensive audited operations. Read-only backup status remains GET. Failed runs count
+toward the schedule interval; the pinned recovery client records attempts before preconditions.
+
 ## 12. Delivery phases
 
 ### Phase 1: secure core

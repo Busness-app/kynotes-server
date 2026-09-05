@@ -364,5 +364,17 @@ func (s *Service) Due(now time.Time) (bool, error) {
 		return false, err
 	}
 	next, ok, err := recoveryclient.NextRun(s.defaultInterval(), settings{s.store})
-	return ok && !now.Before(next), err
+	if err != nil || !ok {
+		return false, err
+	}
+	// NextRun returns its own time.Now when no attempt exists. The scheduler's
+	// timestamp was captured earlier, so comparing them would postpone the first run forever.
+	last, err := s.store.GetSetting("backup_last_attempt")
+	if errors.Is(err, storage.ErrNotFound) || (err == nil && last == "") {
+		return true, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return !now.Before(next), nil
 }
