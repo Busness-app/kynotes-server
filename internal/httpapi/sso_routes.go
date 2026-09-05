@@ -1,20 +1,20 @@
 package httpapi
 
 import (
-	"crypto/hmac"
 	"crypto/rand"
-	"crypto/sha256"
-	"crypto/subtle"
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
+	"github.com/Busness-app/ky-primitives/syncauth"
 	"github.com/Busness-app/kynotes-server/internal/auth"
 	"github.com/Busness-app/kynotes-server/internal/config"
 	"github.com/Busness-app/kynotes-server/internal/ids"
@@ -36,6 +36,7 @@ func requestHost(r *http.Request) string {
 
 // SSORoutes registers OIDC SSO and directory sync endpoints.
 func SSORoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config, ssoStore *sso.Store) {
+	transactions := &ssoTransactions{pending: make(map[string]ssoTransaction)}
 	handleSSOConfig := func(w http.ResponseWriter, r *http.Request) {
 		settings := ssoStore.Load()
 		writeJSON(w, map[string]any{
@@ -61,20 +62,6 @@ func SSORoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config, ssoStore *sso.
 			return
 		}
 
-		state := sso.GenerateState()
-
-		cookieVal := fmt.Sprintf("%s|%s", state, verifier)
-		secure := !cfg.Server.DevInsecureCookies && isRequestSecure(r)
-		http.SetCookie(w, &http.Cookie{
-			Name:     ssoCookieName,
-			Value:    cookieVal,
-			Path:     "/",
-			HttpOnly: true,
-			Secure:   secure,
-			SameSite: http.SameSiteLaxMode,
-			MaxAge:   300,
-		})
-
 		disc, err := sso.DiscoverEndpoints(r.Context(), settings.IssuerURL)
 		if err != nil {
 			WriteError(w, r, http.StatusBadGateway, "discovery_failed", "failed to discover OIDC endpoints: "+err.Error())
@@ -90,6 +77,13 @@ func SSORoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config, ssoStore *sso.
 			redirectURI = fmt.Sprintf("%s://%s%s", scheme, requestHost(r), strings.Replace(r.URL.Path, "/login", "/callback", 1))
 		}
 
+		state, nonce := sso.GenerateState(), sso.GenerateState()
+		if !transactions.add(state, ssoTransaction{Verifier: verifier, Nonce: nonce, RedirectURI: redirectURI, Settings: settings, Expires: time.Now().Add(5 * time.Minute)}) {
+			WriteError(w, r, http.StatusTooManyRequests, "sso_busy", "too many pending logins")
+			return
+		}
+		http.SetCookie(w, &http.Cookie{Name: ssoCookieName, Value: state, Path: "/", HttpOnly: true, Secure: !cfg.Server.DevInsecureCookies && isRequestSecure(r), SameSite: http.SameSiteLaxMode, MaxAge: 300})
+
 		authURL, err := url.Parse(disc.AuthorizationEndpoint)
 		if err != nil {
 			WriteError(w, r, http.StatusInternalServerError, "invalid_endpoint", "invalid authorization endpoint")
@@ -101,6 +95,7 @@ func SSORoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config, ssoStore *sso.
 		q.Set("redirect_uri", redirectURI)
 		q.Set("scope", "openid profile email")
 		q.Set("state", state)
+		q.Set("nonce", nonce)
 		q.Set("code_challenge", challenge)
 		q.Set("code_challenge_method", "S256")
 		authURL.RawQuery = q.Encode()
@@ -132,12 +127,17 @@ func SSORoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config, ssoStore *sso.
 			return
 		}
 
-		parts := strings.Split(cookie.Value, "|")
-		if len(parts) < 2 || subtle.ConstantTimeCompare([]byte(parts[0]), []byte(state)) != 1 {
-			WriteError(w, r, http.StatusBadRequest, "invalid_state", "invalid SSO state parameter")
+		if cookie.Value != state {
+			WriteError(w, r, http.StatusBadRequest, "invalid_state", "invalid SSO state")
 			return
 		}
-		codeVerifier := parts[1]
+		transaction, ok := transactions.take(state)
+		clearCookie(w, ssoCookieName, true, !cfg.Server.DevInsecureCookies && isRequestSecure(r))
+		if !ok || transaction.Settings != settings {
+			WriteError(w, r, http.StatusBadRequest, "invalid_state", "expired or changed SSO login")
+			return
+		}
+		codeVerifier := transaction.Verifier
 
 		disc, err := sso.DiscoverEndpoints(r.Context(), settings.IssuerURL)
 		if err != nil {
@@ -145,14 +145,7 @@ func SSORoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config, ssoStore *sso.
 			return
 		}
 
-		scheme := "http"
-		if isRequestSecure(r) {
-			scheme = "https"
-		}
-		redirectURI := settings.RedirectURI
-		if redirectURI == "" {
-			redirectURI = fmt.Sprintf("%s://%s%s", scheme, requestHost(r), r.URL.Path)
-		}
+		redirectURI := transaction.RedirectURI
 
 		tok, err := sso.ExchangeCode(r.Context(), disc.TokenEndpoint, settings.ClientID, settings.ClientSecret, code, redirectURI, codeVerifier)
 		if err != nil {
@@ -160,26 +153,31 @@ func SSORoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config, ssoStore *sso.
 			return
 		}
 
-		claims, err := sso.ParseClaims(r.Context(), tok.IDToken, tok.AccessToken, disc.UserinfoEndpoint)
+		claims, err := ssoStore.VerifyClaims(r.Context(), settings, disc, tok.IDToken, transaction.Nonce)
 		if err != nil {
-			WriteError(w, r, http.StatusBadGateway, "invalid_claims", "failed to parse claims: "+err.Error())
+			WriteError(w, r, http.StatusBadGateway, "invalid_claims", "ID token verification failed")
 			return
 		}
 
 		var userID, userStatus, userRole string
 		// 1. Try finding user by sso_subject
 		err = db.QueryRow(`SELECT id, status, role FROM users WHERE sso_subject=?`, claims.Subject).Scan(&userID, &userStatus, &userRole)
-		if err != nil {
-			// 2. Try finding user by username or email
-			err = db.QueryRow(`SELECT id, status, role FROM users WHERE username=?`, strings.ToLower(claims.Username)).Scan(&userID, &userStatus, &userRole)
-			if err == nil {
-				// Link sso_subject
-				_, _ = db.Exec(`UPDATE users SET sso_subject=?, updated_at=? WHERE id=?`, claims.Subject, time.Now().UTC().Format(time.RFC3339), userID)
-			}
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			WriteError(w, r, 500, "internal", "account lookup failed")
+			return
 		}
 
 		// 3. Auto-provision if user does not exist
 		if userID == "" {
+			var occupied int
+			if err := db.QueryRow(`SELECT count(*) FROM users WHERE username=?`, strings.ToLower(claims.Username)).Scan(&occupied); err != nil {
+				WriteError(w, r, 500, "internal", "account lookup failed")
+				return
+			}
+			if occupied != 0 {
+				WriteError(w, r, 403, "account_link_required", "account must be linked by the trusted directory")
+				return
+			}
 			if !settings.AutoProvision {
 				WriteError(w, r, http.StatusForbidden, "user_not_found", "Account does not exist and auto-provisioning is disabled")
 				return
@@ -201,7 +199,11 @@ func SSORoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config, ssoStore *sso.
 			dummyBytes := make([]byte, 32)
 			_, _ = rand.Read(dummyBytes)
 			dummySecret := hex.EncodeToString(dummyBytes)
-			dummyHash, _ := auth.HashAuthSecret(dummySecret)
+			dummyHash, hashErr := auth.HashAuthSecret(dummySecret)
+			if hashErr != nil {
+				WriteError(w, r, 503, "auth_busy", "authentication temporarily unavailable")
+				return
+			}
 			loginSalt := auth.SyntheticLoginSalt(cfg.Secrets.ServerSaltKey, claims.Username)
 			now := time.Now().UTC().Format(time.RFC3339)
 
@@ -238,26 +240,14 @@ func SSORoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config, ssoStore *sso.
 
 	// Directory Sync Webhook from KySignOn
 	handleSyncEvents := func(w http.ResponseWriter, r *http.Request) {
-		settings := ssoStore.Load()
+		verified, ok := syncauth.EventFromContext(r)
+		if !ok {
+			WriteError(w, r, 401, "invalid_signature", "unverified event")
+			return
+		}
 		body, err := io.ReadAll(r.Body)
 		if err != nil {
-			WriteError(w, r, http.StatusBadRequest, "invalid_request", "failed to read body")
-			return
-		}
-
-		// This webhook has no session authentication: the signature is the only
-		// control on it, and it can create admins, delete users, and rebind an
-		// account's SSO subject. An absent signature or unconfigured secret must
-		// fail closed.
-		if settings.HMACSecret == "" {
-			WriteError(w, r, http.StatusUnauthorized, "sync_not_configured", "directory sync is not configured")
-			return
-		}
-		mac := hmac.New(sha256.New, []byte(settings.HMACSecret))
-		mac.Write(body)
-		expectedSig := hex.EncodeToString(mac.Sum(nil))
-		if !hmac.Equal([]byte(r.Header.Get("X-KySignOn-Signature")), []byte(expectedSig)) {
-			WriteError(w, r, http.StatusUnauthorized, "invalid_signature", "invalid webhook HMAC signature")
+			WriteError(w, r, 400, "invalid_request", "failed to read event")
 			return
 		}
 
@@ -274,34 +264,145 @@ func SSORoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config, ssoStore *sso.
 			return
 		}
 
-		switch event.EventType {
-		case "user.created", "user.updated", "user.status_changed", "user.disabled", "user.enabled":
-			if event.User != nil {
-				if err := syncSingleUser(db, cfg, event.User); err != nil {
-					WriteError(w, r, http.StatusInternalServerError, "sync_failed", err.Error())
+		if event.EventID != verified.ID || event.EventType != verified.Type {
+			WriteError(w, r, 400, "invalid_event", "event metadata mismatch")
+			return
+		}
+		tx, err := db.BeginTx(r.Context(), nil)
+		if err != nil {
+			WriteError(w, r, 500, "sync_failed", "event transaction failed")
+			return
+		}
+		defer tx.Rollback()
+		// Replay admission and account mutations commit together; failed events remain retryable.
+		if _, err = tx.Exec(`DELETE FROM sso_sync_events WHERE expires_at < ?`, time.Now().Unix()); err == nil {
+			var result sql.Result
+			result, err = tx.Exec(`INSERT INTO sso_sync_events(event_id,expires_at) VALUES(?,?) ON CONFLICT(event_id) DO NOTHING`, verified.ID, verified.At.Add(syncauth.DefaultWindow).Unix())
+			if err == nil {
+				var n int64
+				n, err = result.RowsAffected()
+				if err == nil && n == 0 {
+					WriteError(w, r, 409, "event_replayed", "event already applied")
 					return
 				}
 			}
+		}
+		if err != nil {
+			WriteError(w, r, 500, "sync_failed", "event admission failed")
+			return
+		}
+		switch verified.Type {
+		case "user.created", "user.updated", "user.status_changed", "user.disabled", "user.enabled":
+			if event.User == nil {
+				err = errors.New("missing user")
+			} else {
+				err = syncSingleUser(tx, cfg, event.User)
+			}
 		case "user.deleted":
-			if event.User != nil {
-				_, _ = db.Exec(`DELETE FROM users WHERE sso_subject=? OR (username != '' AND username=?)`, event.User.ID, strings.ToLower(event.User.Username))
+			if event.User == nil || event.User.ID == "" {
+				err = errors.New("missing subject")
+			} else {
+				_, err = tx.Exec(`DELETE FROM users WHERE sso_subject=?`, event.User.ID)
 			}
 		case "directory.resync":
 			for _, u := range event.Users {
-				_ = syncSingleUser(db, cfg, &u)
+				if err = syncSingleUser(tx, cfg, &u); err != nil {
+					break
+				}
 			}
+		default:
+			WriteError(w, r, 400, "invalid_event", "unsupported event type")
+			return
+		}
+		if err == nil {
+			err = tx.Commit()
+		}
+		if err != nil {
+			WriteError(w, r, 500, "sync_failed", "directory event was not applied")
+			return
 		}
 
 		writeJSON(w, map[string]any{"status": "applied", "eventId": event.EventID})
 	}
-	mux.HandleFunc("POST /api/v1/sync/events", handleSyncEvents)
-	mux.HandleFunc("POST /api/sync/events", handleSyncEvents)
-	mux.HandleFunc("POST /sync/events", handleSyncEvents)
+	verify := syncauth.Middleware(func(r *http.Request) ([]byte, error) { return []byte(ssoStore.Load().HMACSecret), nil }, syncauth.Options{}, cfg.Server.MaxRequestBytes, nil)
+	handler := verify(http.HandlerFunc(handleSyncEvents))
+	for _, path := range []string{"/api/v1/sync/events", "/api/sync/events", "/sync/events"} {
+		mux.Handle("POST "+path, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			handler.ServeHTTP(&syncAuthWriter{ResponseWriter: w, request: r}, r)
+		}))
+	}
 }
 
-func syncSingleUser(db *sql.DB, cfg config.Config, u *sso.SyncUser) error {
-	var existingID, existingUsername, existingRole, existingStatus string
-	err := db.QueryRow(`SELECT id, username, role, status FROM users WHERE sso_subject=? OR (username != '' AND username=?)`, u.ID, strings.ToLower(u.Username)).Scan(&existingID, &existingUsername, &existingRole, &existingStatus)
+// Keep the product's error envelope at the library middleware boundary.
+type syncAuthWriter struct {
+	http.ResponseWriter
+	request  *http.Request
+	rejected bool
+}
+
+func (w *syncAuthWriter) WriteHeader(status int) {
+	if status == http.StatusUnauthorized {
+		w.rejected = true
+		WriteError(w.ResponseWriter, w.request, status, "invalid_signature", "invalid directory signature")
+		return
+	}
+	w.ResponseWriter.WriteHeader(status)
+}
+func (w *syncAuthWriter) Write(b []byte) (int, error) {
+	if w.rejected {
+		return len(b), nil
+	}
+	return w.ResponseWriter.Write(b)
+}
+
+type ssoTransaction struct {
+	Verifier, Nonce, RedirectURI string
+	Settings                     sso.SSOSettings
+	Expires                      time.Time
+}
+type ssoTransactions struct {
+	mu      sync.Mutex
+	pending map[string]ssoTransaction
+}
+
+func (s *ssoTransactions) add(state string, tx ssoTransaction) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for key, item := range s.pending {
+		if !time.Now().Before(item.Expires) {
+			delete(s.pending, key)
+		}
+	}
+	// ponytail: at most 1024 concurrent logins per process. Upgrade path: shared expiring transaction store for multiple replicas.
+	if len(s.pending) >= 1024 {
+		return false
+	}
+	s.pending[state] = tx
+	return true
+}
+func (s *ssoTransactions) take(state string) (ssoTransaction, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	tx, ok := s.pending[state]
+	delete(s.pending, state)
+	return tx, ok && time.Now().Before(tx.Expires)
+}
+
+func syncSingleUser(db *sql.Tx, cfg config.Config, u *sso.SyncUser) error {
+	if u.ID == "" {
+		return errors.New("missing directory subject")
+	}
+	var existingID, existingUsername, existingRole, existingStatus, existingSubject string
+	err := db.QueryRow(`SELECT id, username, role, status, coalesce(sso_subject,'') FROM users WHERE sso_subject=?`, u.ID).Scan(&existingID, &existingUsername, &existingRole, &existingStatus, &existingSubject)
+	if errors.Is(err, sql.ErrNoRows) && u.Username != "" {
+		err = db.QueryRow(`SELECT id, username, role, status, coalesce(sso_subject,'') FROM users WHERE username=?`, strings.ToLower(u.Username)).Scan(&existingID, &existingUsername, &existingRole, &existingStatus, &existingSubject)
+	}
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
+	if err == nil && existingSubject != "" && existingSubject != u.ID {
+		return errors.New("directory subject conflict")
+	}
 	now := time.Now().UTC().Format(time.RFC3339)
 
 	username := strings.ToLower(u.Username)
@@ -336,11 +437,17 @@ func syncSingleUser(db *sql.DB, cfg config.Config, u *sso.SyncUser) error {
 		if username == "" {
 			username = u.ID
 		}
-		newID, _ := ids.Mint("usr")
+		newID, mintErr := ids.Mint("usr")
+		if mintErr != nil {
+			return mintErr
+		}
 		dummyBytes := make([]byte, 32)
 		_, _ = rand.Read(dummyBytes)
 		dummySecret := hex.EncodeToString(dummyBytes)
-		dummyHash, _ := auth.HashAuthSecret(dummySecret)
+		dummyHash, hashErr := auth.HashAuthSecret(dummySecret)
+		if hashErr != nil {
+			return hashErr
+		}
 		loginSalt := auth.SyntheticLoginSalt(cfg.Secrets.ServerSaltKey, username)
 
 		_, err = db.Exec(`INSERT INTO users(id, username, auth_secret_hash, login_salt, login_iterations, role, status, sso_subject, created_at, updated_at) VALUES(?, ?, ?, ?, 600000, ?, ?, ?, ?, ?)`,

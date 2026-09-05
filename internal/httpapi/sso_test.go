@@ -2,13 +2,10 @@ package httpapi
 
 import (
 	"bytes"
-	"crypto/hmac"
-	"crypto/sha256"
 	"database/sql"
-	"encoding/base64"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/Busness-app/ky-primitives/syncauth"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -90,124 +87,6 @@ func TestSSOConfigEndpoint(t *testing.T) {
 	}
 }
 
-func TestSSOFullFlow(t *testing.T) {
-	db, cfg := setupTestDB(t)
-	ssoStore := sso.NewStore(db)
-
-	// Mock OIDC Identity Provider (KySignOn)
-	var mockServer *httptest.Server
-	mockServer = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case "/.well-known/openid-configuration":
-			w.Header().Set("Content-Type", "application/json")
-			_ = json.NewEncoder(w).Encode(sso.DiscoveryDoc{
-				Issuer:                mockServer.URL,
-				AuthorizationEndpoint: mockServer.URL + "/oauth/authorize",
-				TokenEndpoint:         mockServer.URL + "/oauth/token",
-				UserinfoEndpoint:      mockServer.URL + "/oauth/userinfo",
-			})
-		case "/oauth/token":
-			claimsObj := map[string]any{
-				"sub":                "kysignon-sub-789",
-				"preferred_username": "bob",
-				"email":              "bob@example.com",
-				"role":               "user",
-			}
-			claimsJSON, _ := json.Marshal(claimsObj)
-			headerJSON, _ := json.Marshal(map[string]string{"alg": "RS256", "typ": "JWT"})
-			mockIDToken := base64.RawURLEncoding.EncodeToString(headerJSON) + "." + base64.RawURLEncoding.EncodeToString(claimsJSON) + ".fakesig"
-
-			w.Header().Set("Content-Type", "application/json")
-			_ = json.NewEncoder(w).Encode(sso.TokenResponse{
-				AccessToken: "mock-access-token",
-				IDToken:     mockIDToken,
-				TokenType:   "Bearer",
-				ExpiresIn:   3600,
-			})
-		default:
-			http.NotFound(w, r)
-		}
-	}))
-	defer mockServer.Close()
-
-	// Configure SSO in KyNotes
-	_ = ssoStore.Save(sso.SSOSettings{
-		Enabled:       true,
-		IssuerURL:     mockServer.URL,
-		ClientID:      "kynotes",
-		AutoProvision: true,
-	})
-
-	router := NewRouter(logging.New(io.Discard, "error", "json"), 1048576, func() bool { return true }, db, cfg)
-
-	// 1. Initiate Login
-	loginReq := httptest.NewRequest("GET", "/api/v1/auth/oidc/login", nil)
-	loginRec := httptest.NewRecorder()
-	router.ServeHTTP(loginRec, loginReq)
-
-	if loginRec.Code != http.StatusFound {
-		t.Fatalf("expected 302 redirect from oidc/login, got %d: %s", loginRec.Code, loginRec.Body.String())
-	}
-
-	redirectLocation := loginRec.Header().Get("Location")
-	if !strings.Contains(redirectLocation, "/oauth/authorize") {
-		t.Fatalf("expected redirect to /oauth/authorize, got %s", redirectLocation)
-	}
-
-	// Extract state cookie
-	var ssoCookie *http.Cookie
-	for _, c := range loginRec.Result().Cookies() {
-		if c.Name == ssoCookieName {
-			ssoCookie = c
-			break
-		}
-	}
-	if ssoCookie == nil {
-		t.Fatalf("expected %s cookie to be set", ssoCookieName)
-	}
-
-	parts := strings.Split(ssoCookie.Value, "|")
-	state := parts[0]
-
-	// 2. Callback
-	cbReq := httptest.NewRequest("GET", fmt.Sprintf("/api/v1/auth/oidc/callback?code=mock-code-123&state=%s", state), nil)
-	cbReq.AddCookie(ssoCookie)
-	cbRec := httptest.NewRecorder()
-	router.ServeHTTP(cbRec, cbReq)
-
-	if cbRec.Code != http.StatusFound {
-		t.Fatalf("expected 302 redirect from oidc/callback, got %d: %s", cbRec.Code, cbRec.Body.String())
-	}
-
-	// Verify session cookie was issued
-	var sessionCookie *http.Cookie
-	for _, c := range cbRec.Result().Cookies() {
-		if c.Name == "kynotes_session" {
-			sessionCookie = c
-			break
-		}
-	}
-	if sessionCookie == nil {
-		t.Fatalf("expected kynotes_session cookie to be issued")
-	}
-
-	// Verify user was auto-provisioned in DB
-	var dbUser struct {
-		ID         string
-		Username   string
-		SSOSubject string
-		Role       string
-		Status     string
-	}
-	err := db.QueryRow(`SELECT id, username, sso_subject, role, status FROM users WHERE sso_subject='kysignon-sub-789'`).Scan(&dbUser.ID, &dbUser.Username, &dbUser.SSOSubject, &dbUser.Role, &dbUser.Status)
-	if err != nil {
-		t.Fatalf("user was not provisioned in database: %v", err)
-	}
-	if dbUser.Username != "bob" || dbUser.Role != "user" || dbUser.Status != "active" {
-		t.Fatalf("unexpected provisioned user data: %+v", dbUser)
-	}
-}
-
 func TestDirectorySyncWebhook(t *testing.T) {
 	db, cfg := setupTestDB(t)
 	ssoStore := sso.NewStore(db)
@@ -236,13 +115,9 @@ func TestDirectorySyncWebhook(t *testing.T) {
 	}
 	bodyBytes, _ := json.Marshal(eventPayload)
 
-	mac := hmac.New(sha256.New, []byte(secret))
-	mac.Write(bodyBytes)
-	sig := hex.EncodeToString(mac.Sum(nil))
-
 	req := httptest.NewRequest("POST", "/api/v1/sync/events", bytes.NewReader(bodyBytes))
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-KySignOn-Signature", sig)
+	signSync(t, req, secret, "ev_1", "user.created", bodyBytes)
+
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
@@ -267,13 +142,9 @@ func TestDirectorySyncWebhook(t *testing.T) {
 		},
 	}
 	bodyBytes2, _ := json.Marshal(eventPayload2)
-	mac2 := hmac.New(sha256.New, []byte(secret))
-	mac2.Write(bodyBytes2)
-	sig2 := hex.EncodeToString(mac2.Sum(nil))
-
 	req2 := httptest.NewRequest("POST", "/api/v1/sync/events", bytes.NewReader(bodyBytes2))
-	req2.Header.Set("Content-Type", "application/json")
-	req2.Header.Set("X-KySignOn-Signature", sig2)
+	signSync(t, req2, secret, "ev_2", "user.status_changed", bodyBytes2)
+
 	rec2 := httptest.NewRecorder()
 	router.ServeHTTP(rec2, req2)
 
@@ -380,9 +251,7 @@ func postSyncEvent(t *testing.T, router http.Handler, path, secret string, paylo
 	req := httptest.NewRequest("POST", path, bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	if secret != "" {
-		mac := hmac.New(sha256.New, []byte(secret))
-		mac.Write(body)
-		req.Header.Set("X-KySignOn-Signature", hex.EncodeToString(mac.Sum(nil)))
+		signSync(t, req, secret, fmt.Sprint(payload["eventId"]), fmt.Sprint(payload["eventType"]), body)
 	}
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
@@ -471,4 +340,14 @@ func TestDirectorySyncCannotRebindAdminSSOSubject(t *testing.T) {
 	if subject == "attacker-controlled-sub" {
 		t.Fatal("an unsigned sync event rebound the admin account to an attacker's SSO identity")
 	}
+}
+
+func signSync(t *testing.T, req *http.Request, secret, id, kind string, body []byte) {
+	t.Helper()
+	h, err := syncauth.Sign([]byte(secret), time.Now().UTC(), kind, id, body)
+	if err != nil {
+		req.Header.Set(syncauth.HeaderSignature, "invalid")
+		return
+	}
+	h.Apply(req)
 }

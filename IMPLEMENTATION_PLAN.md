@@ -2,6 +2,11 @@
 
 Status: authoritative. Supersedes any earlier phase sketch.
 Audience: the engineer or agent implementing the server from an empty Go module.
+Extension for Myslop #290: the implemented OIDC and directory-sync paths now use
+`ky-primitives@v0.5.1` (`oidcverify` and `syncauth`), per DESIGN.md. Migration
+0014 records signed event replay atomically with account changes. This supersedes
+the original deferral of SSO for that existing subsystem; client crypto is unchanged.
+
 Source documents: [DESIGN.md](DESIGN.md), [SECURITY.md](SECURITY.md),
 [LOGGING.md](LOGGING.md), [CONTRIBUTING.md](CONTRIBUTING.md), [AGENTS.md](AGENTS.md).
 
@@ -102,6 +107,7 @@ sites). The package is `httpapi`.
 ### 1.2 Dependency allowlist (complete)
 
 ```
+github.com/Busness-app/ky-primitives # shared auth, OIDC and sync contracts
 modernc.org/sqlite          # pure-Go SQLite driver; required for CGO_ENABLED=0
 golang.org/x/crypto         # pbkdf2, hkdf, scrypt
 gopkg.in/yaml.v3            # config file

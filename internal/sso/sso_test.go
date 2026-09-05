@@ -3,8 +3,6 @@ package sso
 import (
 	"context"
 	"database/sql"
-	"encoding/base64"
-	"encoding/json"
 	"testing"
 
 	_ "modernc.org/sqlite"
@@ -34,24 +32,11 @@ func TestGenerateState(t *testing.T) {
 	}
 }
 
-func TestParseClaims(t *testing.T) {
-	claimsObj := map[string]any{
-		"sub":                "kysignon-user-456",
-		"preferred_username": "alice",
-		"email":              "alice@example.com",
-		"role":               "admin",
-	}
-	claimsJSON, _ := json.Marshal(claimsObj)
-	headerJSON, _ := json.Marshal(map[string]string{"alg": "RS256", "typ": "JWT"})
-
-	mockIDToken := base64.RawURLEncoding.EncodeToString(headerJSON) + "." + base64.RawURLEncoding.EncodeToString(claimsJSON) + ".fakesig"
-
-	claims, err := ParseClaims(context.Background(), mockIDToken, "", "")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if claims.Subject != "kysignon-user-456" || claims.Username != "alice" || claims.Email != "alice@example.com" || claims.Role != "admin" {
-		t.Fatalf("claims mismatch: %+v", claims)
+func TestVerifyClaimsRefusesUnsignedIdentity(t *testing.T) {
+	store := NewStore(nil)
+	_, err := store.VerifyClaims(context.Background(), SSOSettings{IssuerURL: "https://issuer.example", ClientID: "kynotes"}, &DiscoveryDoc{JWKSURI: "https://issuer.example/keys"}, "eyJhbGciOiJub25lIn0.eyJzdWIiOiJhZG1pbiJ9.", "nonce")
+	if err == nil {
+		t.Fatal("unsigned identity accepted")
 	}
 }
 

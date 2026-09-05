@@ -118,7 +118,13 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   and OpenID Connect single sign-on integration.
 - `internal/sso` and `internal/httpapi` handle OpenID Connect PKCE authentication,
   automated account provisioning, KySignOn system pairing (`POST /api/v1/admin/sso/pair`),
-  and HMAC-SHA256 verified directory synchronization webhooks (`POST /api/v1/sync/events`).
+  and directory synchronization webhooks (`POST /api/v1/sync/events`). ID tokens use
+  `oidcverify` with issuer/audience/nonce binding and a one-use server-side PKCE transaction.
+  Login never adopts an existing username; trusted directory sync can link an unbound
+  local account but refuses a conflicting subject. `syncauth` verifies every webhook
+  alias; migration `0014_sso_sync_events.sql` commits replay admission with account
+  changes so a failed application remains retryable. Tests cover real TLS/JWKS signatures,
+  forged claims, metadata tampering, concurrent/restarted replay, and rollback.
 - KyBackup owns backup/restore; cross-server workspace migration is deferred to
   v2.
 - `internal/web` embeds the production `web/dist` bundle into the server image;

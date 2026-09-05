@@ -3,7 +3,7 @@ module github.com/Busness-app/kynotes-server
 go 1.26.6
 
 require (
-	github.com/Busness-app/ky-primitives v0.5.0
+	github.com/Busness-app/ky-primitives v0.5.1
 	gopkg.in/yaml.v3 v3.0.1
 	modernc.org/sqlite v1.39.1
 )

@@ -73,6 +73,15 @@ All application communication uses HTTPS. Push delivery may use FCM or APNs;
 push payloads contain notification metadata only and never note content or
 keys.
 
+### Single sign-on and directory trust
+
+OIDC login verifies signed ID tokens using `ky-primitives/oidcverify`, binding the
+configured issuer, client audience and a one-use login nonce. Existing local usernames
+are adopted only by trusted directory provisioning; the login callback never silently
+links them. Directory events use `ky-primitives/syncauth` signatures and a durable event
+ID admitted in the same SQLite transaction as account changes. Failed applications can
+retry; applied events are refused during the signature-validity window.
+
 ### Encryption
 
 Encryption and decryption happen in clients. The server stores:
