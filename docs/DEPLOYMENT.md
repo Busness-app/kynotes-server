@@ -98,3 +98,57 @@ Migrations run at startup. Make a backup before upgrades. To roll back, stop
 the server, restore the backup directory, run both integrity checks, and start
 again. The server holds a data-directory lock while running, so backup and
 restore commands must be run against a stopped service.
+
+## Ciphertext blob mirror
+
+Capsules exclude both note-version and attachment ciphertext files. Configure one
+separate destination under `backup.blob_target` in YAML (see `kynotes.example.yaml`):
+
+| YAML field | Environment override | Meaning |
+|---|---|---|
+| `url` | `KYNOTES_BLOB_TARGET` | `file:///mnt/backup/kynotes`, `s3://bucket/prefix`, `sftp://user@host:22/dir`, or `smb://host/share/dir` |
+| `access_key` | `KYNOTES_BLOB_TARGET_ACCESS_KEY` | S3 access ID, SFTP username, or SMB `DOMAIN\user` |
+| `secret` | `KYNOTES_BLOB_TARGET_SECRET` | S3 secret, SFTP password/PEM private key, or SMB password |
+| `host_key` | `KYNOTES_BLOB_TARGET_HOST_KEY` | Verified SFTP SHA256 host fingerprint |
+| `s3_endpoint` | `KYNOTES_BLOB_TARGET_S3_ENDPOINT` | Optional HTTPS R2/MinIO endpoint |
+| `s3_region` | `KYNOTES_BLOB_TARGET_S3_REGION` | Optional region |
+
+Keep credentials in protected deployment configuration, never URL passwords. Compose
+passes these variables through; empty overrides preserve YAML values. Effective mirror
+credentials are included only inside the encrypted capsule configuration. Admin status
+omits credentials and usernames. Mount a `file://` destination into the container and
+make it writable by its user; a directory on the same disk is not off-box protection.
+
+With the server stopped, run `kynotes-server test-blob-target --config PATH`. For SFTP,
+an absent pin causes the probe to print the presented fingerprint and fail before
+authentication. Compare it with the host's key through a trusted independent channel,
+then configure it and repeat. Server startup and uploads require a pin. SFTP paths are
+relative to the account root. The probe writes a small object; S3 retains/overwrites
+that probe, while the other transports remove it.
+
+SMB supports versions 2/3 and requests signing, but the shared library can accept an
+unsigned guest session granted by the server. An impersonating server could observe
+the NTLMv2 exchange and discard uploads. Restrict SMB to a trusted network and verify
+replicas independently; a host-mounted share accessed with `file://` avoids that client
+limitation. An existing SMB object is accepted only after its size and digest verify.
+
+Admin **Mirror now** works independently of capsule pairing. **Back up now** and scheduled
+runs mirror the exact collected capsule inventory after attempting the capsule destinations.
+Capsule and mirror results remain separate: a deposit receipt does not prove blob coverage.
+CLI `mirror-blobs --config PATH` and `fetch-blobs --config PATH` require a stopped server
+and take the same directory lock. All transfers stream; the capsule member size cap does
+not limit blob transfers. Product upload limits stay unchanged.
+
+The single-target replica table records successful transfers only. Endpoint, bucket,
+prefix, SFTP host key and account-relative namespace changes cause uploads again;
+password rotations alone do not. Acknowledgements avoid rereading remote objects on
+every run, so later remote deletion is detected during fetch, not by the pending count.
+Remote objects are never garbage-collected by KyNotes. Preserve them for every retained
+capsule; removing live local objects does not establish that old capsules no longer need them.
+
+There is no atomic transaction spanning SQLite, local GC and remote storage. A blob that
+vanishes after snapshot collection is reported as a failure against that retained inventory.
+Investigate missing content before relying on the capsule. Operations share a 16-minute
+budget; very large backlogs may need repeated **Mirror now** runs before a backup. Successful
+acknowledgements survive retries. A future resumable worker/remote scrub is the upgrade path
+for workloads exceeding that budget or requiring continuous remote verification.

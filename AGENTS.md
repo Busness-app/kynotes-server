@@ -151,3 +151,9 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
 - Destructive admin routes sit behind `auth.RequireStepUp`: the browser re-proves the
   derived login secret at `POST /api/v1/auth/step-up` (`web/src/stepup.ts`) and the
   grant lasts `auth.StepUpWindow`. Routes answer `403 step_up_required` until then.
+
+- `internal/mirror/AGENTS.md` owns streaming ciphertext replication and recovery over
+  `ky-primitives/offsite@v0.1.0`. Migration `0015_blob_replicas.sql` tracks the single
+  destination identity; credentials remain in deployment configuration and sealed capsules.
+  Admin mirror status/actions share backup authorization. Capsule-triggered runs use
+  snapshot inventory; restore fetch uses the restored database regardless of replica rows.

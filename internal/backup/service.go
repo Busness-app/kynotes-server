@@ -12,6 +12,7 @@ import (
 	"github.com/Busness-app/ky-primitives/capsule"
 	"github.com/Busness-app/ky-primitives/recoveryclient"
 	"github.com/Busness-app/kynotes-server/internal/config"
+	"github.com/Busness-app/kynotes-server/internal/mirror"
 	"github.com/Busness-app/kynotes-server/internal/storage"
 )
 
@@ -88,6 +89,10 @@ func (s *Service) audit(actor, event, requestID string, err error, details map[s
 }
 func ErrorCode(err error) string {
 	switch {
+	case errors.Is(err, ErrNoBlobTarget):
+		return "blob_target_required"
+	case errors.Is(err, mirror.ErrIncomplete):
+		return "blob_mirror_incomplete"
 	case errors.Is(err, ErrInvalid):
 		return "invalid_backup_request"
 	case errors.Is(err, ErrAudit):
@@ -171,15 +176,36 @@ func (s *Service) SetSchedule(actor, requestID string, seconds int64) error {
 	}
 	return s.audit(actor, "admin.backup_schedule", requestID, err, map[string]any{"interval_seconds": int64(stored / time.Second)})
 }
-func (s *Service) Run(ctx context.Context, actor, requestID string) (recoveryclient.Result, error) {
+
+type Result struct {
+	recoveryclient.Result
+	Mirror      *mirror.Stats `json:"mirror,omitempty"`
+	MirrorError string        `json:"mirror_error,omitempty"`
+}
+
+func (s *Service) Run(ctx context.Context, actor, requestID string) (Result, error) {
 	if e := s.begin(); e != nil {
-		return recoveryclient.Result{}, e
+		return Result{}, e
 	}
 	defer s.mu.Unlock()
 	seal, err := s.sealer()
-	var result recoveryclient.Result
+	var result Result
+	var inventory []mirror.Object
 	if err == nil {
-		result, err = recoveryclient.Run(ctx, recoveryclient.RunConfig{DataDir: s.cfg.DataDir, AppName: config.AppName, AppVersion: s.version, BackupDir: s.cfg.Backup.Dir, Keep: s.cfg.Backup.Keep, Sealer: seal}, settings{s.store}, func() (recoveryclient.Payload, error) { return s.Collect(ctx) }, s.client)
+		result.Result, err = recoveryclient.Run(ctx, recoveryclient.RunConfig{DataDir: s.cfg.DataDir, AppName: config.AppName, AppVersion: s.version, BackupDir: s.cfg.Backup.Dir, Keep: s.cfg.Backup.Keep, Sealer: seal}, settings{s.store}, func() (recoveryclient.Payload, error) {
+			payload, err := s.Collect(ctx)
+			if err != nil {
+				return payload, err
+			}
+			for _, file := range payload.Files {
+				if file.Path == "blob-inventory.json" {
+					if err = json.Unmarshal(file.Data, &inventory); err != nil {
+						return payload, err
+					}
+				}
+			}
+			return payload, nil
+		}, s.client)
 	}
 	// Outcome understands a successful remote deposit whose receipt write failed. Do not
 	// put raw transport errors, which can contain URL credentials, into logs or responses.
@@ -187,7 +213,7 @@ func (s *Service) Run(ctx context.Context, actor, requestID string) (recoverycli
 	if err != nil && !errors.Is(err, recoveryclient.ErrReceiptUnrecorded) {
 		safeErr = errors.New(ErrorCode(err))
 	}
-	event, outcome, details := recoveryclient.Outcome(result, safeErr)
+	event, outcome, details := recoveryclient.Outcome(result.Result, safeErr)
 	details["local_error"] = ""
 	if result.LocalError != "" {
 		details["local_error"] = "local_copy_failed"
@@ -196,6 +222,14 @@ func (s *Service) Run(ctx context.Context, actor, requestID string) (recoverycli
 	reason, _ := json.Marshal(details)
 	if e := storage.RecordAuditOutcome(s.store.DB(), actor, event, "", "", outcome, string(reason), requestID); e != nil {
 		err = errors.Join(err, ErrAudit)
+	}
+	if inventory != nil && s.cfg.Backup.BlobTarget.URL != "" {
+		stats, mirrorErr := s.mirrorRun(ctx, actor, requestID, inventory)
+		result.Mirror = &stats
+		if mirrorErr != nil {
+			result.MirrorError = "blob_mirror_incomplete"
+			err = errors.Join(err, mirrorErr)
+		}
 	}
 	return result, err
 }
@@ -237,6 +271,7 @@ func (s *Service) Drill(ctx context.Context, actor, requestID string) (*recovery
 }
 
 type Status struct {
+	Mirror               MirrorStatus               `json:"mirror"`
 	KeyID                string                     `json:"key_id"`
 	KeyError             string                     `json:"key_error,omitempty"`
 	Paired               bool                       `json:"paired"`
@@ -312,7 +347,8 @@ func (s *Service) Status() (Status, error) {
 		return st, err
 	}
 	_ = s.store.DB().QueryRow(`SELECT outcome FROM audit_events WHERE event='admin.backup_run' ORDER BY at DESC,rowid DESC LIMIT 1`).Scan(&st.LastResult)
-	return st, nil
+	st.Mirror, err = s.mirrorStatus()
+	return st, err
 }
 func (s *Service) defaultInterval() time.Duration {
 	d, _ := time.ParseDuration(s.cfg.Backup.DepositInterval)

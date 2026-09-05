@@ -298,3 +298,16 @@ presence, activity history, and collaboration notifications.
 
 Templates, web clipping, freehand drawing, richer media workflows, public
 publishing, and desktop clients.
+
+## Ciphertext mirror extension (Myslop #290)
+
+`internal/mirror` uses the nested `github.com/Busness-app/ky-primitives/offsite@v0.1.0`
+module for file, S3, pinned SFTP and SMB transports. It streams all note-version and
+attachment blobs, stores success acknowledgements in migration 0015, and fetches against
+the restored database inventory. Credentials live in protected config and encrypted
+capsules, never status/audits. Manual and scheduled capsule runs preserve independent
+capsule/mirror results and pass snapshot inventory through possible concurrent GC.
+`POST /api/v1/admin/backup/mirror` requires admin, step-up and CSRF; status includes
+redacted mirror coverage. Offline mirror/fetch share the server directory lock.
+No frozen crypto format, capsule v1 recipe, or product upload limit changes. Remote
+history is retained; full restore is capsule, fetch-blobs, consistency-check, browser proof.

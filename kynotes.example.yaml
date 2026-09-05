@@ -36,3 +36,10 @@ backup:
   keep: 7                        # newest N local copies kept
   deposit_interval: "24h"        # default schedule; "0" disables; floor 15m; the admin UI setting overrides
   allow_private_recovery: false  # admit a KyRecovery on a private or CGNAT address (HTTPS still required)
+  blob_target:
+    url: ""                     # file:///mnt/backup/blobs, s3://bucket/prefix, sftp://user@host/path, smb://host/share/path
+    access_key: ""              # S3 key ID or SFTP/SMB user; never put passwords in URLs
+    secret: ""                  # S3 secret, SFTP password/private PEM key, SMB password
+    host_key: ""                # verified SFTP SHA256 fingerprint (required for SFTP)
+    s3_endpoint: ""             # optional S3-compatible endpoint
+    s3_region: "us-east-1"

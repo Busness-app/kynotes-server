@@ -52,14 +52,21 @@ Preserve the snapshot's `blob-inventory.json`. Obtain every digest recorded in i
 `blobs` table from the original store or matching mirror, then run:
 
 ```bash
+kynotes-server fetch-blobs --config /absolute/path/restored/kynotes.yaml
 kynotes-server integrity-check --config /absolute/path/restored/kynotes.yaml
 kynotes-server consistency-check --config /absolute/path/restored/kynotes.yaml
 ```
 
-Until the separate blob-mirror change lands, copy the original ciphertext `blobs/`
-directory into the restored target while stopped. Missing blobs are missing content,
-not a successful restore. The subsequent mirror release supplies `fetch-blobs`.
-Never upload the plaintext directory copy to a ciphertext-only mirror target.
+`fetch-blobs` reads the restored database inventory and the restored mirror settings,
+ignoring historical replica acknowledgements. It verifies size and SHA-256 before
+publishing each recovered file, skips intact local files, and repairs corrupt ones.
+A nonzero exit means incomplete recovery: `missing` counts absent remote objects;
+other failures mean transport, credentials, local I/O or digest verification failed.
+An unavailable target is not evidence that its objects are missing. Fix the cause and
+retry; intact recovered blobs are skipped. Never start with unresolved missing content.
+If no mirror exists, copy the original ciphertext `blobs/` directory into the stopped
+restored target, then run the same checks. Never upload the plaintext directory copy
+to a ciphertext-only mirror target. Preserve the source and remote history during recovery.
 
 ## 3. Start and check identity
 
@@ -80,7 +87,7 @@ must follow their owning provider's procedure, not direct edits to encrypted row
 
 `go test ./cmd/kynotes-server -run TestRestoreCapsuleWithStdinSharesPreservesLoginAndRevokesSessions`
 runs an actual synthetic 2-of-3 restore, verifies the original login verifier and secrets,
-checks session revocation, and exercises occupied target, missing shares, tampering and
+retrieves note-version and attachment ciphertext from a local mirror, checks session revocation, and exercises occupied target, missing shares, tampering and
 foreign-service refusal. `go test ./internal/backup` proves WAL snapshot and opened-recipe
 checks. These are code/fixture proof; they do not claim access to real custodian cards or
 prove a deployment's remote blob coverage.

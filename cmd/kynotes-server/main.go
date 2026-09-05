@@ -32,6 +32,12 @@ func main() {
 	}
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
+		case "mirror-blobs", "fetch-blobs", "test-blob-target":
+			if e := mirrorCommand(os.Args[1], os.Args[2:]); e != nil {
+				fmt.Fprintln(os.Stderr, e)
+				os.Exit(1)
+			}
+			return
 		case "deposit", "export-capsule", "backup-drill", "restore":
 			if e := capsuleCommand(os.Args[1], os.Args[2:]); e != nil {
 				fmt.Fprintln(os.Stderr, e)
