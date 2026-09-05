@@ -314,8 +314,8 @@ func Validate(c Config) error {
 	if c.Backup.Keep < 1 {
 		return errors.New("backup.keep: must be at least 1")
 	}
-	if d, err := time.ParseDuration(c.Backup.DepositInterval); err != nil || d < 0 || (d != 0 && d < MinBackupDepositInterval) {
-		return fmt.Errorf("backup.deposit_interval: 0 (off) or at least %s", MinBackupDepositInterval)
+	if d, err := time.ParseDuration(c.Backup.DepositInterval); err != nil || d < 0 || d > 366*24*time.Hour || (d != 0 && d < MinBackupDepositInterval) {
+		return fmt.Errorf("backup.deposit_interval: 0 (off), or %s through 8784h", MinBackupDepositInterval)
 	}
 	for _, p := range [][2]string{{"server.read_header_timeout", c.Server.ReadHeaderTimeout}, {"server.read_timeout", c.Server.ReadTimeout}, {"server.write_timeout", c.Server.WriteTimeout}, {"server.idle_timeout", c.Server.IdleTimeout}, {"server.shutdown_grace", c.Server.ShutdownGrace}, {"limits.upload_session_ttl", c.Limits.UploadSessionTTL}, {"gc.interval", c.GC.Interval}} {
 		if err := duration(p[0], p[1]); err != nil {
