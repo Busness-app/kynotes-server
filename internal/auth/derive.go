@@ -13,7 +13,8 @@ const authLabel = "kynotes/auth/v1"
 const saltLabel = "login-salt/v1"
 
 func DeriveAuthSecret(password, salt string, iterations int) (string, error) {
-	return derive.AuthSecret(password, salt, iterations, authLabel)
+	secret, err := derive.AuthSecret(password, salt, iterations, authLabel)
+	return secret, normalizeBusy(err)
 }
 
 // SyntheticLoginSalt is the salt handed out for a username that has none, so a

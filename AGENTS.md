@@ -48,8 +48,8 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
 
 - `internal/httpapi`: opaque routing ciphertext, role-gated mutations, and
   device-validated envelope writes are covered by the package integration
-  tests; login, device, pairing, and upload endpoints use in-memory token
-  buckets. Upload retries are byte-checked, and preview uploads remain
+  tests; login, password change, step-up, recover, device, pairing, and upload
+  endpoints use in-memory token buckets. Upload retries are byte-checked, and preview uploads remain
   content-addressed without creating an attachment row. Admin settings/users,
   audit metadata, team membership, and encrypted comment reads/writes are
   session- and role-gated here.
@@ -138,7 +138,8 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   with label `kynotes/auth/v1`; recovery codes come from `ky-primitives/recoverycode`
   and are minted by the server (`user add` prints one; `POST /api/v1/auth/recover`
   returns the replacement); key files under `<data>/secrets` load through
-  `ky-primitives/keyfile` and an undecodable file is a startup error.
+  `ky-primitives/keyfile` and an undecodable file is a startup error. Password and derive
+  admission-control failures surface as `auth.ErrBusy` and answer 503, never a lockout strike.
 - Destructive admin routes sit behind `auth.RequireStepUp`: the browser re-proves the
   derived login secret at `POST /api/v1/auth/step-up` (`web/src/stepup.ts`) and the
   grant lasts `auth.StepUpWindow`. Routes answer `403 step_up_required` until then.

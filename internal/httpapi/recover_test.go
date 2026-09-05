@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -90,5 +91,44 @@ func TestRecoverRefusesUserWithoutRecoveryCode(t *testing.T) {
 	mux.ServeHTTP(rec, req)
 	if rec.Code != 401 {
 		t.Fatalf("empty stored hash must never verify: %d", rec.Code)
+	}
+}
+
+func TestRecoverRejectPathIsUniformCost(t *testing.T) {
+	db, cfg := setupTestDB(t)
+	mux := http.NewServeMux()
+	AuthRoutes(mux, db, cfg)
+	code, hash, err := auth.NewRecoveryCode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC().Format(time.RFC3339)
+	oldHash, _ := auth.HashAuthSecret(strings.Repeat("0", 64))
+	if _, err := db.Exec(`INSERT INTO users(id,username,auth_secret_hash,login_salt,login_iterations,recovery_hash,role,status,created_at,updated_at) VALUES('usr_cost','costed',?,'salt',600000,?,'user','active',?,?)`, oldHash, hash, now, now); err != nil {
+		t.Fatal(err)
+	}
+	salt := base64.StdEncoding.EncodeToString([]byte("0123456789abcdef"))
+	body := func(username, recoveryCode string) string {
+		return `{"username":"` + username + `","recoveryCode":"` + recoveryCode + `","newAuthSecret":"` + strings.Repeat("1", 64) + `","newLoginSalt":"` + salt + `","iterations":100000}`
+	}
+	measure := func(username, recoveryCode string) time.Duration {
+		var ds []time.Duration
+		for i := 0; i < 3; i++ {
+			req := httptest.NewRequest("POST", "/api/v1/auth/recover", strings.NewReader(body(username, recoveryCode)))
+			start := time.Now()
+			rec := httptest.NewRecorder()
+			mux.ServeHTTP(rec, req)
+			if rec.Code != http.StatusUnauthorized {
+				t.Fatalf("%s recover got %d, want 401", username, rec.Code)
+			}
+			ds = append(ds, time.Since(start))
+		}
+		sort.Slice(ds, func(i, j int) bool { return ds[i] < ds[j] })
+		return ds[len(ds)/2]
+	}
+	known := measure("costed", code+"x")
+	unknown := measure("missing", code)
+	if unknown < known/2 {
+		t.Fatalf("unknown user reject too cheap: unknown=%s known=%s", unknown, known)
 	}
 }

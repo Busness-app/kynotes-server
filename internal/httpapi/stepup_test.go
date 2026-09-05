@@ -62,9 +62,45 @@ func TestStepUpGatesDestructiveRoute(t *testing.T) {
 		t.Fatalf("stale step-up honoured: %d", rr.Code)
 	}
 
-	var outcome string
-	if err := db.QueryRow(`SELECT outcome FROM audit_events WHERE event='auth.step_up'`).Scan(&outcome); err != nil || outcome != "success" {
-		t.Fatalf("step-up not audited: %v %q", err, outcome)
+	var failures, successes int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM audit_events WHERE event='auth.step_up' AND outcome='failure' AND reason_code='invalid_secret'`).Scan(&failures); err != nil || failures != 1 {
+		t.Fatalf("failed step-up not audited: %v %d", err, failures)
+	}
+	if err := db.QueryRow(`SELECT COUNT(*) FROM audit_events WHERE event='auth.step_up' AND outcome='success'`).Scan(&successes); err != nil || successes != 1 {
+		t.Fatalf("successful step-up not audited: %v %d", err, successes)
+	}
+}
+
+func TestStepUpIsRateLimited(t *testing.T) {
+	db, cfg := setupTestDB(t)
+	cfg.RateLimit.LoginPerMinute = 1
+	mux := http.NewServeMux()
+	AuthRoutes(mux, db, cfg)
+	h := rateLimitMiddleware(cfg, db, mux)
+
+	adminID, _ := createAdminUser(t, db)
+	rec := httptest.NewRecorder()
+	s, err := auth.MintSession(db, rec, adminID, true, time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	call := func() *httptest.ResponseRecorder {
+		req := httptest.NewRequest("POST", "/api/v1/auth/step-up", strings.NewReader(`{"authSecret":"`+strings.Repeat("a", 64)+`"}`))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-CSRF-Token", s.CSRF)
+		req.RemoteAddr = "203.0.113.55:44444"
+		for _, c := range rec.Result().Cookies() {
+			req.AddCookie(c)
+		}
+		rr := httptest.NewRecorder()
+		h.ServeHTTP(rr, req)
+		return rr
+	}
+	if rr := call(); rr.Code != http.StatusNoContent {
+		t.Fatalf("first step-up: %d %s", rr.Code, rr.Body)
+	}
+	if rr := call(); rr.Code != http.StatusTooManyRequests {
+		t.Fatalf("second step-up: %d %s", rr.Code, rr.Body)
 	}
 }
 

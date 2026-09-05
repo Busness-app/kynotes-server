@@ -3,6 +3,7 @@ package httpapi
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"net"
 	"net/http"
 	"strings"
@@ -18,6 +19,11 @@ var dummyOnce sync.Once
 var dummyHash string
 var loginLockout = auth.NewLockout(3, 15*time.Minute, 50000)
 var recoveryLockout = auth.NewLockout(3, 60*time.Minute, 50000)
+
+func authBusy(w http.ResponseWriter, r *http.Request, message string) {
+	w.Header().Set("Retry-After", "60")
+	WriteError(w, r, http.StatusServiceUnavailable, "temporarily_unavailable", message)
+}
 
 func dummyVerifier() string {
 	dummyOnce.Do(func() { dummyHash, _ = auth.HashAuthSecret(strings.Repeat("0", 64)) })
@@ -170,8 +176,12 @@ func AuthRoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config) {
 		if err != nil {
 			stored = dummyVerifier()
 		}
-		valid := auth.VerifyAuthSecret(in.AuthSecret, stored) == nil
-		if err != nil || !valid || status != "active" {
+		verifyErr := auth.VerifyAuthSecret(in.AuthSecret, stored)
+		if errors.Is(verifyErr, auth.ErrBusy) {
+			authBusy(w, r, "login temporarily unavailable")
+			return
+		}
+		if err != nil || verifyErr != nil || status != "active" {
 			recoveryLockout.Fail(key, time.Now().UTC())
 			WriteError(w, r, 401, "unauthenticated", "invalid credentials")
 			return
@@ -229,7 +239,13 @@ func AuthRoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config) {
 			return
 		}
 		var stored string
-		if db.QueryRow(`SELECT auth_secret_hash FROM users WHERE id=? AND status='active'`, s.UserID).Scan(&stored) != nil || auth.VerifyAuthSecret(in.CurrentAuthSecret, stored) != nil {
+		err := db.QueryRow(`SELECT auth_secret_hash FROM users WHERE id=? AND status='active'`, s.UserID).Scan(&stored)
+		verifyErr := auth.VerifyAuthSecret(in.CurrentAuthSecret, stored)
+		if errors.Is(verifyErr, auth.ErrBusy) {
+			authBusy(w, r, "password change temporarily unavailable")
+			return
+		}
+		if err != nil || verifyErr != nil {
 			WriteError(w, r, 401, "unauthenticated", "current password is incorrect")
 			return
 		}
@@ -279,12 +295,20 @@ func AuthRoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config) {
 		s, _ := auth.SessionFromContext(r)
 		key := s.UserID + "\x00" + clientIP(r)
 		if !loginLockout.Try(key, time.Now().UTC()) {
+			recordAuditOutcome(db, s.UserID, "auth.step_up", "", "", "failure", "rate_limited", r.Header.Get("X-Request-Id"))
 			WriteError(w, r, 429, "rate_limited", "try again later")
 			return
 		}
 		var stored string
-		if db.QueryRow(`SELECT auth_secret_hash FROM users WHERE id=?`, s.UserID).Scan(&stored) != nil || auth.VerifyAuthSecret(in.AuthSecret, stored) != nil {
+		err := db.QueryRow(`SELECT auth_secret_hash FROM users WHERE id=?`, s.UserID).Scan(&stored)
+		verifyErr := auth.VerifyAuthSecret(in.AuthSecret, stored)
+		if errors.Is(verifyErr, auth.ErrBusy) {
+			authBusy(w, r, "step-up temporarily unavailable")
+			return
+		}
+		if err != nil || verifyErr != nil {
 			loginLockout.Fail(key, time.Now().UTC())
+			recordAuditOutcome(db, s.UserID, "auth.step_up", "", "", "failure", "invalid_secret", r.Header.Get("X-Request-Id"))
 			WriteError(w, r, 401, "unauthenticated", "invalid credentials")
 			return
 		}
@@ -307,7 +331,10 @@ func AuthRoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config) {
 			WriteError(w, r, 400, "invalid_request", "invalid request")
 			return
 		}
-		if _, e := auth.DeriveAuthSecret("", in.NewLoginSalt, in.Iterations); e != nil {
+		if _, e := auth.DeriveAuthSecret("", in.NewLoginSalt, in.Iterations); errors.Is(e, auth.ErrBusy) {
+			authBusy(w, r, "recovery temporarily unavailable")
+			return
+		} else if e != nil {
 			WriteError(w, r, 400, "invalid_request", "invalid request")
 			return
 		}
@@ -317,7 +344,17 @@ func AuthRoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config) {
 			return
 		}
 		var uid, stored, usedAt string
-		if e := db.QueryRow(`SELECT id,recovery_hash,recovery_used_at FROM users WHERE username=?`, strings.ToLower(in.Username)).Scan(&uid, &stored, &usedAt); e != nil || usedAt != "" || stored == "" || auth.VerifyRecoveryCode(in.RecoveryCode, stored) != nil {
+		e := db.QueryRow(`SELECT id,recovery_hash,recovery_used_at FROM users WHERE username=?`, strings.ToLower(in.Username)).Scan(&uid, &stored, &usedAt)
+		if e != nil || usedAt != "" || stored == "" {
+			auth.DummyVerify()
+			loginLockout.Fail(key, time.Now().UTC())
+			WriteError(w, r, 401, "unauthenticated", "invalid recovery credentials")
+			return
+		}
+		if e := auth.VerifyRecoveryCode(in.RecoveryCode, stored); errors.Is(e, auth.ErrBusy) {
+			authBusy(w, r, "recovery temporarily unavailable")
+			return
+		} else if e != nil {
 			loginLockout.Fail(key, time.Now().UTC())
 			WriteError(w, r, 401, "unauthenticated", "invalid recovery credentials")
 			return
