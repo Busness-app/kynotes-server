@@ -1,0 +1,10 @@
+# Optional override: send the container's DNS lookups to your LAN resolver so a
+# KyRecovery that exists only there resolves inside the container. A dns: entry
+# replaces the host's resolvers for every lookup this container makes, which is
+# why it lives in its own file and never in docker-compose.yml.
+#
+#   KYNOTES_DNS=192.168.1.1 docker compose -f docker-compose.yml -f docker-compose.lan-dns.yml up -d
+services:
+  kynotes-server:
+    dns:
+      - ${KYNOTES_DNS:?set KYNOTES_DNS to your LAN DNS server}

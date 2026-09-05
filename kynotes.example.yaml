@@ -31,3 +31,8 @@ ratelimit:
 log:
   level: "info"
   format: "json"
+backup:
+  dir: ""                        # local directory for sealed .kycap copies; empty disables
+  keep: 7                        # newest N local copies kept
+  deposit_interval: "24h"        # default schedule; "0" disables; floor 15m; the admin UI setting overrides
+  allow_private_recovery: false  # admit a KyRecovery on a private or CGNAT address (HTTPS still required)
