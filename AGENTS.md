@@ -140,6 +140,7 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   returns the replacement); key files under `<data>/secrets` load through
   `ky-primitives/keyfile` and an undecodable file is a startup error. Password and derive
   admission-control failures surface as `auth.ErrBusy` and answer 503, never a lockout strike.
+  The login dummy verifier retries a failed mint; it must never cache or use an empty hash.
 - Destructive admin routes sit behind `auth.RequireStepUp`: the browser re-proves the
   derived login secret at `POST /api/v1/auth/step-up` (`web/src/stepup.ts`) and the
   grant lasts `auth.StepUpWindow`. Routes answer `403 step_up_required` until then.

@@ -15,19 +15,29 @@ import (
 	"github.com/Busness-app/kynotes-server/internal/ids"
 )
 
-var dummyOnce sync.Once
+var dummyMu sync.Mutex
 var dummyHash string
 var loginLockout = auth.NewLockout(3, 15*time.Minute, 50000)
 var recoveryLockout = auth.NewLockout(3, 60*time.Minute, 50000)
+var hashDummySecret = auth.HashAuthSecret
 
 func authBusy(w http.ResponseWriter, r *http.Request, message string) {
 	w.Header().Set("Retry-After", "60")
 	WriteError(w, r, http.StatusServiceUnavailable, "temporarily_unavailable", message)
 }
 
-func dummyVerifier() string {
-	dummyOnce.Do(func() { dummyHash, _ = auth.HashAuthSecret(strings.Repeat("0", 64)) })
-	return dummyHash
+func dummyVerifier() (string, error) {
+	dummyMu.Lock()
+	defer dummyMu.Unlock()
+	if dummyHash != "" {
+		return dummyHash, nil
+	}
+	h, err := hashDummySecret(strings.Repeat("0", 64))
+	if err != nil {
+		return "", err
+	}
+	dummyHash = h
+	return dummyHash, nil
 }
 
 func AuthRoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config) {
@@ -174,7 +184,16 @@ func AuthRoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config) {
 		var id, stored, status, role string
 		err := db.QueryRow(`SELECT id,auth_secret_hash,status,role FROM users WHERE username=?`, strings.ToLower(in.Username)).Scan(&id, &stored, &status, &role)
 		if err != nil {
-			stored = dummyVerifier()
+			stored, err = dummyVerifier()
+			if err != nil {
+				auth.DummyVerify()
+				if errors.Is(err, auth.ErrBusy) {
+					authBusy(w, r, "login temporarily unavailable")
+					return
+				}
+				WriteError(w, r, 500, "internal", "internal server error")
+				return
+			}
 		}
 		verifyErr := auth.VerifyAuthSecret(in.AuthSecret, stored)
 		if errors.Is(verifyErr, auth.ErrBusy) {
