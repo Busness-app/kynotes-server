@@ -286,6 +286,11 @@ func Validate(c Config) error {
 	if c.Secrets.PairingSecret != "" && len(c.Secrets.PairingSecret) < 32 {
 		return errors.New("secrets.pairing_secret: too short")
 	}
+	// Synthetic login salts are an HMAC under this key; the library refuses
+	// anything under 32 bytes, so refuse it here rather than serve empty salts.
+	if c.Secrets.ServerSaltKey != "" && len(c.Secrets.ServerSaltKey) < 32 {
+		return errors.New("secrets.server_salt_key: too short")
+	}
 	for _, p := range [][2]string{{"server.read_header_timeout", c.Server.ReadHeaderTimeout}, {"server.read_timeout", c.Server.ReadTimeout}, {"server.write_timeout", c.Server.WriteTimeout}, {"server.idle_timeout", c.Server.IdleTimeout}, {"server.shutdown_grace", c.Server.ShutdownGrace}, {"limits.upload_session_ttl", c.Limits.UploadSessionTTL}, {"gc.interval", c.GC.Interval}} {
 		if err := duration(p[0], p[1]); err != nil {
 			return err

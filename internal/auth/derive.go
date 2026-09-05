@@ -1,48 +1,25 @@
 package auth
 
 import (
-	"crypto/hmac"
-	"crypto/sha256"
-	"encoding/base64"
-	"encoding/hex"
-	"errors"
-	"golang.org/x/crypto/hkdf"
-	"golang.org/x/crypto/pbkdf2"
-	"io"
-	"strings"
+	"github.com/Busness-app/ky-primitives/derive"
 )
 
-const MinLoginIterations = 100000
-const MaxLoginIterations = 12000000
+const MinLoginIterations = derive.MinIterations
+const MaxLoginIterations = derive.MaxIterations
+
+// authLabel is the HKDF domain the browser mirrors in web/src/crypto.ts.
+// Change a byte and every user is locked out.
+const authLabel = "kynotes/auth/v1"
+const saltLabel = "login-salt/v1"
 
 func DeriveAuthSecret(password, salt string, iterations int) (string, error) {
-	if err := validateLoginSalt(salt); err != nil {
-		return "", err
-	}
-	if iterations < MinLoginIterations || iterations > MaxLoginIterations {
-		return "", errors.New("invalid iterations")
-	}
-	raw, e := base64.StdEncoding.DecodeString(salt)
-	if e != nil {
-		return "", e
-	}
-	stretched := pbkdf2.Key([]byte(password), raw, iterations, 32, sha256.New)
-	r := hkdf.New(sha256.New, stretched, nil, []byte("kynotes/auth/v1"))
-	out := make([]byte, 32)
-	if _, e = io.ReadFull(r, out); e != nil {
-		return "", e
-	}
-	return hex.EncodeToString(out), nil
+	return derive.AuthSecret(password, salt, iterations, authLabel)
 }
-func validateLoginSalt(s string) error {
-	b, e := base64.StdEncoding.DecodeString(s)
-	if e != nil || len(b) < 16 || len(b) > 64 {
-		return errors.New("invalid login salt")
-	}
-	return nil
-}
+
+// SyntheticLoginSalt is the salt handed out for a username that has none, so a
+// probe cannot tell registered from unregistered. Config validation guarantees
+// key is at least 32 bytes, the library's floor, so the error is unreachable.
 func SyntheticLoginSalt(key, username string) string {
-	mac := hmac.New(sha256.New, []byte(key))
-	mac.Write([]byte("login-salt/v1\x00" + strings.ToLower(username)))
-	return base64.StdEncoding.EncodeToString(mac.Sum(nil)[:16])
+	s, _ := derive.SyntheticSalt([]byte(key), saltLabel, username)
+	return s
 }

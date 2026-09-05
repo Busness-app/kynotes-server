@@ -72,6 +72,14 @@ func TestShortPairingSecretIsRefused(t *testing.T) {
 	}
 }
 
+func TestShortServerSaltKeyIsRefused(t *testing.T) {
+	c := testConfig(t)
+	c.Secrets.ServerSaltKey = "short"
+	if err := Validate(c); err == nil || !strings.Contains(err.Error(), "server_salt_key") {
+		t.Fatalf("got %v", err)
+	}
+}
+
 func TestChunkSizeLargerThanAttachmentLimitIsRefused(t *testing.T) {
 	c := testConfig(t)
 	c.Limits.ChunkBytes = c.Limits.AttachmentMaxBytes + 1
