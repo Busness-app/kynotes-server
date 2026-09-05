@@ -4,6 +4,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"github.com/Busness-app/ky-primitives/offsite"
+	"github.com/Busness-app/kynotes-server/internal/blobstore"
+	"github.com/Busness-app/kynotes-server/internal/mirror"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -39,7 +43,34 @@ func TestRestoreCapsuleWithStdinSharesPreservesLoginAndRevokesSessions(t *testin
 	if _, err = st.DB().Exec(`INSERT INTO sessions(id,user_id,token_hash,csrf_hash,created_at,expires_at,hard_expires_at) VALUES('sess_fixture','usr_fixture','token','csrf',?,?,?)`, time.Now().Format(time.RFC3339), time.Now().Add(time.Hour).Format(time.RFC3339), time.Now().Add(time.Hour).Format(time.RFC3339)); err != nil {
 		t.Fatal(err)
 	}
+	cfg.Backup.BlobTarget.URL = "file://" + t.TempDir()
+	blobs, err := blobstore.New(cfg.DataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	contents := map[string]string{}
+	for i, content := range []string{"synthetic encrypted note version", "synthetic encrypted attachment"} {
+		temp, err := blobs.NewTemp([]string{"note", "attachment"}[i])
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err = io.WriteString(temp, content); err != nil {
+			t.Fatal(err)
+		}
+		digest, size, err := temp.Finalize("")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err = st.DB().Exec(`INSERT INTO blobs(digest,size_bytes,created_at) VALUES(?,?,'')`, digest, size); err != nil {
+			t.Fatal(err)
+		}
+		contents[digest] = content
+	}
 	svc := backup.New(cfg, st, "test")
+	defer svc.Close()
+	if stats, err := svc.MirrorNow(context.Background(), "system", "fixture"); err != nil || stats.Uploaded != 2 {
+		t.Fatal(stats, err)
+	}
 	key, err := recoverykey.Generate()
 	if err != nil {
 		t.Fatal(err)
@@ -89,6 +120,28 @@ func TestRestoreCapsuleWithStdinSharesPreservesLoginAndRevokesSessions(t *testin
 		t.Fatal(err)
 	}
 	defer restored.Close()
+	recoveredBlobs, err := blobstore.New(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	remote, err := offsite.Parse(got.Backup.BlobTarget.Offsite())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stats, err := mirror.Fetch(context.Background(), restored.DB(), recoveredBlobs, remote); err != nil || stats.Fetched != 2 {
+		t.Fatal(stats, err)
+	}
+	for digest, want := range contents {
+		f, _, err := recoveredBlobs.Open(digest)
+		if err != nil {
+			t.Fatal(err)
+		}
+		raw, err := io.ReadAll(f)
+		f.Close()
+		if err != nil || string(raw) != want {
+			t.Fatal("restored ciphertext differs")
+		}
+	}
 	var verifier, revoked string
 	if err = restored.DB().QueryRow(`SELECT auth_secret_hash FROM users WHERE id='usr_fixture'`).Scan(&verifier); err != nil {
 		t.Fatal(err)

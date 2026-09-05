@@ -1,13 +1,15 @@
 # Purpose
 
 KyNotes adapters over `ky-primitives/recoveryclient`: collection, verification,
-service operations, and audit. Shared transport and capsule mechanics stay in the library.
+service operations, blob mirror orchestration, and audit. Shared transport and capsule mechanics stay in the library.
 
 # Local Contracts
 
 - Capsules carry `kynotes.sqlite`, effective secrets, `recovery.pub`, configuration,
   and blob inventory. Note-version and attachment blob bytes are recovered separately.
 - Snapshot the live SQLite handle. Collect recipe counts and inventory from that snapshot.
+  Capsule-triggered mirroring receives that exact inventory even if live GC removed rows.
+  Capsule and mirror results are independent; a receipt never proves blob coverage.
 - `TokenLabel` and effective deployment secret bytes are compatibility contracts.
 - Service operations serialize pin/pair/run/export/drill; CLI takes the same directory
   lock as the server. Close waits for bounded operations before SQLite closes.

@@ -206,3 +206,6 @@ button, input, textarea, select { border-radius: 12px; corner-shape: squircle; }
 #backups form { display: grid; gap: .75rem; margin-block: 1rem; }
 #backups label { display: grid; gap: .25rem; }
 #backups details { margin-block: 1rem; }
+
+.settings-content { min-width: 0; }
+#backups input, #backups textarea { min-width: 0; max-width: 100%; }

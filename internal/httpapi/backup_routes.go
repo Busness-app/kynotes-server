@@ -114,6 +114,20 @@ func BackupRoutes(mux *http.ServeMux, db *sql.DB, service *backup.Service) {
 		w.Header().Set("Cache-Control", "no-store")
 		_, _ = w.Write(raw)
 	})
+	mutation("POST /api/v1/admin/backup/mirror", func(w http.ResponseWriter, r *http.Request) {
+		actor, _ := auth.SessionFromContext(r)
+		stats, err := service.MirrorNow(r.Context(), actor.UserID, RequestID(r))
+		if err != nil && stats.Failed == 0 {
+			writeBackupError(w, r, err)
+			return
+		}
+		code := ""
+		if err != nil {
+			code = backup.ErrorCode(err)
+		}
+		writeJSON(w, map[string]any{"result": stats, "error_code": code})
+	})
+
 	mutation("POST /api/v1/admin/backup/drill", func(w http.ResponseWriter, r *http.Request) {
 		actor, _ := auth.SessionFromContext(r)
 		result, err := service.Drill(r.Context(), actor.UserID, RequestID(r))
@@ -129,7 +143,7 @@ func writeBackupError(w http.ResponseWriter, r *http.Request, err error) {
 	status := 500
 	message := "Backup operation failed; check the key, destinations and audit result. Private KyRecovery hosts require KYNOTES_BACKUP_ALLOW_PRIVATE_RECOVERY=true; HTTPS is always required."
 	switch code {
-	case "recovery_key_required", "recovery_key_missing", "backup_destination_required":
+	case "recovery_key_required", "recovery_key_missing", "backup_destination_required", "blob_target_required":
 		status = 412
 	case "recovery_key_conflict", "backup_in_progress":
 		status = 409

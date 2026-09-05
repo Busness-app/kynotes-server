@@ -54,7 +54,7 @@ func TestBackupRoutesRequireAdminStepUpAndCSRF(t *testing.T) {
 		mux.ServeHTTP(out, req)
 		return out
 	}
-	for _, path := range []string{"pin-key", "pair-remote", "unpair", "schedule", "deposit", "drill", "export-capsule"} {
+	for _, path := range []string{"pin-key", "pair-remote", "unpair", "schedule", "deposit", "drill", "mirror", "export-capsule"} {
 		method := "POST"
 		if path == "export-capsule" {
 			method = "GET"
@@ -69,7 +69,7 @@ func TestBackupRoutesRequireAdminStepUpAndCSRF(t *testing.T) {
 	if _, err = db.Exec(`UPDATE sessions SET stepup_at=? WHERE id=?`, time.Now().UTC().Format(time.RFC3339), session.ID); err != nil {
 		t.Fatal(err)
 	}
-	for _, path := range []string{"pin-key", "pair-remote", "unpair", "schedule", "deposit", "drill"} {
+	for _, path := range []string{"pin-key", "pair-remote", "unpair", "schedule", "deposit", "drill", "mirror"} {
 		if got := do("POST", path, []byte(`{}`), true, false); got.Code != 403 {
 			t.Fatalf("%s no csrf %d", path, got.Code)
 		}

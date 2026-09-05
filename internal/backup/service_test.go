@@ -7,6 +7,8 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"github.com/Busness-app/kynotes-server/internal/blobstore"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -47,10 +49,11 @@ func fixture(t *testing.T) (*Service, recoverykey.PrivateKey) {
 }
 
 type recoveryFixture struct {
-	t    *testing.T
-	key  recoverykey.PrivateKey
-	fail bool
-	raw  []byte
+	t         *testing.T
+	key       recoverykey.PrivateKey
+	fail      bool
+	raw       []byte
+	onDeposit func()
 }
 
 func (f *recoveryFixture) ClaimPairing(_ context.Context, _ string, _ string, service, app string) (recoveryclient.PairingResult, error) {
@@ -64,6 +67,9 @@ func (f *recoveryFixture) Deposit(_ context.Context, _, token string, raw []byte
 		f.t.Fatal("pairing token changed")
 	}
 	f.raw = raw
+	if f.onDeposit != nil {
+		f.onDeposit()
+	}
 	if f.fail {
 		return recoveryclient.Receipt{}, errors.New("fixture unavailable")
 	}
@@ -239,5 +245,48 @@ func TestPreconditionsScheduleAndExportAudit(t *testing.T) {
 	svc.Close()
 	if _, err = svc.Run(context.Background(), "system", "test"); !errors.Is(err, ErrClosed) {
 		t.Fatal("closed service ran")
+	}
+}
+
+func TestMirrorUsesCapsuleInventoryDespiteConcurrentGC(t *testing.T) {
+	svc, key := fixture(t)
+	svc.cfg.Backup.BlobTarget.URL = "file://" + t.TempDir()
+	blobs, err := blobstore.New(svc.cfg.DataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	temp, err := blobs.NewTemp("gc-race")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = io.WriteString(temp, "synthetic ciphertext"); err != nil {
+		t.Fatal(err)
+	}
+	digest, size, err := temp.Finalize("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = svc.store.DB().Exec(`INSERT INTO blobs(digest,size_bytes,created_at) VALUES(?,?,'')`, digest, size); err != nil {
+		t.Fatal(err)
+	}
+	remote := &recoveryFixture{t: t, key: key, onDeposit: func() {
+		if _, err := svc.store.DB().Exec(`DELETE FROM blobs WHERE digest=?`, digest); err != nil {
+			t.Fatal(err)
+		}
+		if err := blobs.Delete(digest); err != nil {
+			t.Fatal(err)
+		}
+	}}
+	svc.client = remote
+	if err = svc.Pair(context.Background(), "system", "gc", "https://recovery.example", "123456"); err != nil {
+		t.Fatal(err)
+	}
+	result, err := svc.Run(context.Background(), "system", "gc")
+	if err == nil || result.Receipt == nil || result.LocalPath == "" || result.Mirror == nil || result.Mirror.Missing != 1 {
+		t.Fatal("GC race hid missing capsule content", result, err)
+	}
+	status, err := svc.Status()
+	if err != nil || status.Mirror.Last == nil || status.Mirror.Last.Missing != 1 {
+		t.Fatal("missing content not visible", err)
 	}
 }
