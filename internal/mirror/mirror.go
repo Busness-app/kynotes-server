@@ -144,7 +144,9 @@ func put(ctx context.Context, blobs *blobstore.Store, target offsite.Target, b O
 	if size != b.Size {
 		return blobstore.ErrCorruptBlob
 	}
-	err = target.Put(ctx, "blobs/"+b.Digest, contextReader{ctx, source}, size)
+	// Preserve ReadSeeker: S3 hashes then rewinds to stream. Shared transports
+	// already enforce cancellation while reading Put bodies.
+	err = target.Put(ctx, "blobs/"+b.Digest, source, size)
 	if errors.Is(err, offsite.ErrObjectExists) {
 		return verifyExisting(ctx, target, b)
 	}

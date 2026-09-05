@@ -9,6 +9,8 @@ Mirror immutable note-version and attachment ciphertext through the shared offsi
   excludes passwords, and includes the shared endpoint/bucket/prefix identity.
 - Acknowledge only successful transfer; verify digest and size on `ErrObjectExists`.
 - Sync honors supplied snapshot inventory. Fetch trusts restored blob rows, not replicas.
+- Preserve the seekable source passed to Put so S3 can hash/rewind without buffering.
+  The shared transports enforce cancellation on upload reads.
 - Verify local sources and fetched size/hash. Close every remote reader, abort temporary
   files on failure, and replace corrupt local files only after replacement verifies.
 - Report missing objects separately from other failures. Never delete remote history.

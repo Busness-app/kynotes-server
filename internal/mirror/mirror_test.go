@@ -285,3 +285,24 @@ func TestFetchRepairsCorruptLocalFile(t *testing.T) {
 	}
 	f.Close()
 }
+
+// S3's shared transport needs ReadSeeker for its hashing pass without buffering.
+func TestUploadPreservesSeekableSource(t *testing.T) {
+	st, blobs, target, key := fixture(t)
+	b := addBlob(t, st, blobs, "seekable", strings.NewReader("synthetic ciphertext"))
+	probe := &seekableTarget{Target: target}
+	stats, err := Sync(context.Background(), st.DB(), blobs, probe, key, []Object{b})
+	if err != nil || stats.Uploaded != 1 || !probe.seekable {
+		t.Fatal("upload lost streaming seek support", stats, err)
+	}
+}
+
+type seekableTarget struct {
+	offsite.Target
+	seekable bool
+}
+
+func (t *seekableTarget) Put(ctx context.Context, name string, r io.Reader, size int64) error {
+	_, t.seekable = r.(io.ReadSeeker)
+	return t.Target.Put(ctx, name, r, size)
+}
