@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/Busness-app/ky-primitives/password"
 )
 
 func contractSalt() string { return base64.StdEncoding.EncodeToString([]byte("0123456789abcdef")) }
@@ -33,9 +35,19 @@ func TestIterationsAboveMaximumRejected(t *testing.T) {
 	}
 }
 
-func TestProductionScryptCostIsUnchanged(t *testing.T) {
-	if scryptN != 1<<17 || scryptR != 8 || scryptP != 1 || scryptKeyLen != 32 {
-		t.Fatal("production scrypt parameters changed")
+func TestProductionArgon2idCostIsTheSuiteProfile(t *testing.T) {
+	// RFC 9106 second recommended profile: 64 MiB, t=3, p=4, the one answer
+	// ky-primitives/password gives every product. A hash minted here must not
+	// be considered stale by the library's own policy.
+	if p := password.DefaultParams(); p.Memory != 64*1024 || p.Time != 3 || p.Threads != 4 {
+		t.Fatalf("suite Argon2id profile changed: %+v", p)
+	}
+	h, err := HashAuthSecret("secret")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stale, _ := password.NeedsRehash(h); stale {
+		t.Fatal("fresh hash reported as needing a rehash")
 	}
 }
 

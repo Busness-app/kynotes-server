@@ -68,6 +68,8 @@ func rateLimitMiddleware(cfg config.Config, db *sql.DB, next http.Handler) http.
 		switch {
 		case path == "/api/v1/auth/login" || path == "/api/v1/auth/login-params":
 			limit, rate, label = cfg.RateLimit.LoginPerMinute, cfg.RateLimit.LoginPerMinute, "login"
+		case path == "/api/v1/auth/step-up" || path == "/api/v1/auth/password" || path == "/api/v1/auth/recover":
+			limit, rate, label = cfg.RateLimit.LoginPerMinute, cfg.RateLimit.LoginPerMinute, "auth"
 		case path == "/api/v1/devices/pairing-token":
 			limit, rate, label = cfg.RateLimit.PairingPerHour, cfg.RateLimit.PairingPerHour, "pairing"
 		case (strings.HasPrefix(path, "/api/v1/containers/") && strings.HasSuffix(path, "/uploads")) || strings.HasPrefix(path, "/api/v1/uploads/"):

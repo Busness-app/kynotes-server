@@ -48,8 +48,8 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
 
 - `internal/httpapi`: opaque routing ciphertext, role-gated mutations, and
   device-validated envelope writes are covered by the package integration
-  tests; login, device, pairing, and upload endpoints use in-memory token
-  buckets. Upload retries are byte-checked, and preview uploads remain
+  tests; login, password change, step-up, recover, device, pairing, and upload
+  endpoints use in-memory token buckets. Upload retries are byte-checked, and preview uploads remain
   content-addressed without creating an attachment row. Admin settings/users,
   audit metadata, team membership, and encrypted comment reads/writes are
   session- and role-gated here.
@@ -125,4 +125,22 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   update the checked-in embed after frontend bundle changes.
 - Verification for server changes: `go test -race ./...`, `go vet ./...`, and
   `gofmt -l .`.
-- `zero_code_pairing_handoff_spec.md`: contract for pairing this service to KyRecovery with an ephemeral 6-digit PIN, then pushing backups plus a declarative verification recipe. This repo owns the client half (`POST /api/pairing/claim`, `POST /api/backup/push`); KyRecovery owns the spec.
+- Backups: `docs/superpowers/plans/2026-09-04-kynotes-kyrecovery-backup.md` wires
+  `ky-primitives/recoveryclient` (sealed capsules to KyRecovery and a local directory);
+  `docs/superpowers/plans/2026-09-05-kynotes-blob-mirror.md` mirrors the attachment
+  store, which the capsule never carries. Until those land, `kynotes-server backup --out`
+  and `restore --in` are plaintext directory copies taken with the server stopped, and
+  there is no KyRecovery client in this repo. The wire contract lives in
+  `kyrecovery-server/zero_code_pairing_handoff_spec.md` (v2), not here. `config.Backup`
+  (`KYNOTES_BACKUP_*`) and `docker-compose.lan-dns.yml` are already in place for it.
+- Passwords and recovery codes are Argon2id PHC strings via `ky-primitives/password`
+  (scrypt verifiers are refused); login secrets derive through `ky-primitives/derive`
+  with label `kynotes/auth/v1`; recovery codes come from `ky-primitives/recoverycode`
+  and are minted by the server (`user add` prints one; `POST /api/v1/auth/recover`
+  returns the replacement); key files under `<data>/secrets` load through
+  `ky-primitives/keyfile` and an undecodable file is a startup error. Password and derive
+  admission-control failures surface as `auth.ErrBusy` and answer 503, never a lockout strike.
+  The login dummy verifier retries a failed mint; it must never cache or use an empty hash.
+- Destructive admin routes sit behind `auth.RequireStepUp`: the browser re-proves the
+  derived login secret at `POST /api/v1/auth/step-up` (`web/src/stepup.ts`) and the
+  grant lasts `auth.StepUpWindow`. Routes answer `403 step_up_required` until then.

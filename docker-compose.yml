@@ -28,7 +28,15 @@ services:
       TRUSTED_PROXY_CIDRS: ${TRUSTED_PROXY_CIDRS:-127.0.0.1/32,10.89.0.0/24,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16}
       BOOTSTRAP_ADMIN_USER: ${BOOTSTRAP_ADMIN_USER:-admin}
       BOOTSTRAP_ADMIN_PASS: ${BOOTSTRAP_ADMIN_PASS:-}
+      KYNOTES_BACKUP_DEPOSIT_INTERVAL: ${KYNOTES_BACKUP_DEPOSIT_INTERVAL:-24h}
+      KYNOTES_BACKUP_DIR: ${KYNOTES_BACKUP_DIR:-}
+      KYNOTES_BACKUP_KEEP: ${KYNOTES_BACKUP_KEEP:-7}
+      KYNOTES_BACKUP_ALLOW_PRIVATE_RECOVERY: ${KYNOTES_BACKUP_ALLOW_PRIVATE_RECOVERY:-false}
 
+    # The container is read-only, so a local backup directory needs its own
+    # mount: add "- ./backups:/backups" here and set KYNOTES_BACKUP_DIR=/backups.
+    # Never add a dns: entry to this file; it replaces the host's resolvers.
+    # For a KyRecovery that resolves only on your LAN, use docker-compose.lan-dns.yml.
     volumes:
       - kynotes_data:/data
       - kynotes_tmp:/tmp

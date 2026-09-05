@@ -3,6 +3,7 @@ package httpapi
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"net"
 	"net/http"
 	"strings"
@@ -14,14 +15,29 @@ import (
 	"github.com/Busness-app/kynotes-server/internal/ids"
 )
 
-var dummyOnce sync.Once
+var dummyMu sync.Mutex
 var dummyHash string
 var loginLockout = auth.NewLockout(3, 15*time.Minute, 50000)
 var recoveryLockout = auth.NewLockout(3, 60*time.Minute, 50000)
+var hashDummySecret = auth.HashAuthSecret
 
-func dummyVerifier() string {
-	dummyOnce.Do(func() { dummyHash, _ = auth.HashAuthSecret(strings.Repeat("0", 64)) })
-	return dummyHash
+func authBusy(w http.ResponseWriter, r *http.Request, message string) {
+	w.Header().Set("Retry-After", "60")
+	WriteError(w, r, http.StatusServiceUnavailable, "temporarily_unavailable", message)
+}
+
+func dummyVerifier() (string, error) {
+	dummyMu.Lock()
+	defer dummyMu.Unlock()
+	if dummyHash != "" {
+		return dummyHash, nil
+	}
+	h, err := hashDummySecret(strings.Repeat("0", 64))
+	if err != nil {
+		return "", err
+	}
+	dummyHash = h
+	return dummyHash, nil
 }
 
 func AuthRoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config) {
@@ -168,10 +184,23 @@ func AuthRoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config) {
 		var id, stored, status, role string
 		err := db.QueryRow(`SELECT id,auth_secret_hash,status,role FROM users WHERE username=?`, strings.ToLower(in.Username)).Scan(&id, &stored, &status, &role)
 		if err != nil {
-			stored = dummyVerifier()
+			stored, err = dummyVerifier()
+			if err != nil {
+				auth.DummyVerify()
+				if errors.Is(err, auth.ErrBusy) {
+					authBusy(w, r, "login temporarily unavailable")
+					return
+				}
+				WriteError(w, r, 500, "internal", "internal server error")
+				return
+			}
 		}
-		valid := auth.VerifyAuthSecret(in.AuthSecret, stored) == nil
-		if err != nil || !valid || status != "active" {
+		verifyErr := auth.VerifyAuthSecret(in.AuthSecret, stored)
+		if errors.Is(verifyErr, auth.ErrBusy) {
+			authBusy(w, r, "login temporarily unavailable")
+			return
+		}
+		if err != nil || verifyErr != nil || status != "active" {
 			recoveryLockout.Fail(key, time.Now().UTC())
 			WriteError(w, r, 401, "unauthenticated", "invalid credentials")
 			return
@@ -229,7 +258,13 @@ func AuthRoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config) {
 			return
 		}
 		var stored string
-		if db.QueryRow(`SELECT auth_secret_hash FROM users WHERE id=? AND status='active'`, s.UserID).Scan(&stored) != nil || auth.VerifyAuthSecret(in.CurrentAuthSecret, stored) != nil {
+		err := db.QueryRow(`SELECT auth_secret_hash FROM users WHERE id=? AND status='active'`, s.UserID).Scan(&stored)
+		verifyErr := auth.VerifyAuthSecret(in.CurrentAuthSecret, stored)
+		if errors.Is(verifyErr, auth.ErrBusy) {
+			authBusy(w, r, "password change temporarily unavailable")
+			return
+		}
+		if err != nil || verifyErr != nil {
 			WriteError(w, r, 401, "unauthenticated", "current password is incorrect")
 			return
 		}
@@ -261,17 +296,64 @@ func AuthRoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config) {
 		}
 		w.WriteHeader(http.StatusNoContent)
 	})))
-	mux.HandleFunc("POST /api/v1/auth/recover", func(w http.ResponseWriter, r *http.Request) {
-		var in struct {
-			Username, RecoveryCode, NewAuthSecret, NewLoginSalt string
-			Iterations                                          int    `json:"iterations"`
-			NewRecoveryCode                                     string `json:"newRecoveryCode"`
+	// Step-up re-proves the login secret for this session. The browser derives
+	// it from the typed password exactly as at login; the server never sees
+	// the password.
+	mux.Handle("POST /api/v1/auth/step-up", auth.RequireSession(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if auth.CheckCSRF(r) != nil {
+			WriteError(w, r, 403, "csrf_failed", "csrf validation failed")
+			return
 		}
-		if json.NewDecoder(r.Body).Decode(&in) != nil || in.Username == "" || in.NewRecoveryCode == "" || len(in.NewAuthSecret) != 64 {
+		var in struct {
+			AuthSecret string `json:"authSecret"`
+		}
+		if json.NewDecoder(r.Body).Decode(&in) != nil || len(in.AuthSecret) != 64 {
 			WriteError(w, r, 400, "invalid_request", "invalid request")
 			return
 		}
-		if _, e := auth.DeriveAuthSecret("", in.NewLoginSalt, in.Iterations); e != nil {
+		s, _ := auth.SessionFromContext(r)
+		key := s.UserID + "\x00" + clientIP(r)
+		if !loginLockout.Try(key, time.Now().UTC()) {
+			recordAuditOutcome(db, s.UserID, "auth.step_up", "", "", "failure", "rate_limited", r.Header.Get("X-Request-Id"))
+			WriteError(w, r, 429, "rate_limited", "try again later")
+			return
+		}
+		var stored string
+		err := db.QueryRow(`SELECT auth_secret_hash FROM users WHERE id=?`, s.UserID).Scan(&stored)
+		verifyErr := auth.VerifyAuthSecret(in.AuthSecret, stored)
+		if errors.Is(verifyErr, auth.ErrBusy) {
+			authBusy(w, r, "step-up temporarily unavailable")
+			return
+		}
+		if err != nil || verifyErr != nil {
+			loginLockout.Fail(key, time.Now().UTC())
+			recordAuditOutcome(db, s.UserID, "auth.step_up", "", "", "failure", "invalid_secret", r.Header.Get("X-Request-Id"))
+			WriteError(w, r, 401, "unauthenticated", "invalid credentials")
+			return
+		}
+		loginLockout.Success(key)
+		now := time.Now().UTC().Format(time.RFC3339)
+		if _, err := db.Exec(`UPDATE sessions SET stepup_at=? WHERE id=?`, now, s.ID); err != nil {
+			WriteError(w, r, 500, "internal", "internal server error")
+			return
+		}
+		recordAudit(db, s.UserID, "auth.step_up", "", "", r.Header.Get("X-Request-Id"))
+		w.WriteHeader(http.StatusNoContent)
+	})))
+
+	mux.HandleFunc("POST /api/v1/auth/recover", func(w http.ResponseWriter, r *http.Request) {
+		var in struct {
+			Username, RecoveryCode, NewAuthSecret, NewLoginSalt string
+			Iterations                                          int `json:"iterations"`
+		}
+		if json.NewDecoder(r.Body).Decode(&in) != nil || in.Username == "" || len(in.NewAuthSecret) != 64 {
+			WriteError(w, r, 400, "invalid_request", "invalid request")
+			return
+		}
+		if _, e := auth.DeriveAuthSecret("", in.NewLoginSalt, in.Iterations); errors.Is(e, auth.ErrBusy) {
+			authBusy(w, r, "recovery temporarily unavailable")
+			return
+		} else if e != nil {
 			WriteError(w, r, 400, "invalid_request", "invalid request")
 			return
 		}
@@ -281,13 +363,19 @@ func AuthRoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config) {
 			return
 		}
 		var uid, stored, usedAt string
-		if e := db.QueryRow(`SELECT id,recovery_hash,recovery_used_at FROM users WHERE username=?`, strings.ToLower(in.Username)).Scan(&uid, &stored, &usedAt); e != nil || usedAt != "" || auth.VerifyAuthSecret(in.RecoveryCode, stored) != nil {
+		e := db.QueryRow(`SELECT id,recovery_hash,recovery_used_at FROM users WHERE username=?`, strings.ToLower(in.Username)).Scan(&uid, &stored, &usedAt)
+		if e != nil || usedAt != "" || stored == "" {
+			auth.DummyVerify()
 			loginLockout.Fail(key, time.Now().UTC())
 			WriteError(w, r, 401, "unauthenticated", "invalid recovery credentials")
 			return
 		}
-		if auth.VerifyAuthSecret(in.NewRecoveryCode, stored) == nil {
-			WriteError(w, r, 400, "invalid_request", "replacement recovery code must be new")
+		if e := auth.VerifyRecoveryCode(in.RecoveryCode, stored); errors.Is(e, auth.ErrBusy) {
+			authBusy(w, r, "recovery temporarily unavailable")
+			return
+		} else if e != nil {
+			loginLockout.Fail(key, time.Now().UTC())
+			WriteError(w, r, 401, "unauthenticated", "invalid recovery credentials")
 			return
 		}
 		newHash, e := auth.HashAuthSecret(in.NewAuthSecret)
@@ -295,7 +383,9 @@ func AuthRoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config) {
 			WriteError(w, r, 500, "internal", "internal server error")
 			return
 		}
-		recoveryHash, e := auth.HashAuthSecret(in.NewRecoveryCode)
+		// The used code is replaced by a fresh one the server mints; it is
+		// returned once in the response and never stored in the clear.
+		nextCode, recoveryHash, e := auth.NewRecoveryCode()
 		if e != nil {
 			WriteError(w, r, 500, "internal", "internal server error")
 			return
@@ -324,7 +414,7 @@ func AuthRoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config) {
 			return
 		}
 		loginLockout.Success(key)
-		w.WriteHeader(http.StatusNoContent)
+		writeJSON(w, map[string]string{"recoveryCode": nextCode})
 	})
 }
 
