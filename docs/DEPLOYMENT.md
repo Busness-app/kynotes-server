@@ -78,7 +78,7 @@ CLI `deposit`, `export-capsule --out FILE` and `backup-drill` take the data-dire
 lock and require a stopped server; the admin UI operates through the live handle.
 `copy-data-dir --out DIR` and `restore-data-dir --in DIR` are local plaintext copies.
 
-Every destructive backup action, including capsule export, requires admin step-up;
+Every destructive backup action, including capsule export, uses POST and requires admin step-up plus CSRF;
 confirm the account password in the backup screen. HTTP mutations also require CSRF.
 Unpair removes URL/token rows only; the KyRecovery admin separately revokes the token.
 The suite key, receipts and local copies remain. Pinning a different key is refused.

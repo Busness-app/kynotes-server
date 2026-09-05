@@ -11,6 +11,10 @@ service operations, and audit. Shared transport and capsule mechanics stay in th
 - `TokenLabel` and effective deployment secret bytes are compatibility contracts.
 - Service operations serialize pin/pair/run/export/drill; CLI takes the same directory
   lock as the server. Close waits for bounded operations before SQLite closes.
+- Export uses POST with admin, step-up and CSRF; a GET cannot trigger collection.
+- Pinned recoveryclient v0.5.1 stamps attempts before checking key/destination or collecting.
+  An enabled schedule with no attempt is due immediately, without comparing two clocks.
+  Failure-schedule tests cover remote/local failures, missing key/destination and restart.
 - Audit uses stable codes and safe metadata; an unaudited export returns no bytes.
 - `Checks` validates the opened manifest and requires all fixed files, tables, counts,
   usable secrets, an active admin, recovery pin, and matching blob inventory.

@@ -56,9 +56,6 @@ func TestBackupRoutesRequireAdminStepUpAndCSRF(t *testing.T) {
 	}
 	for _, path := range []string{"pin-key", "pair-remote", "unpair", "schedule", "deposit", "drill", "export-capsule"} {
 		method := "POST"
-		if path == "export-capsule" {
-			method = "GET"
-		}
 		if got := do(method, path, []byte(`{}`), false, false); got.Code != 401 {
 			t.Fatalf("%s anonymous %d", path, got.Code)
 		}
@@ -69,13 +66,16 @@ func TestBackupRoutesRequireAdminStepUpAndCSRF(t *testing.T) {
 	if _, err = db.Exec(`UPDATE sessions SET stepup_at=? WHERE id=?`, time.Now().UTC().Format(time.RFC3339), session.ID); err != nil {
 		t.Fatal(err)
 	}
-	for _, path := range []string{"pin-key", "pair-remote", "unpair", "schedule", "deposit", "drill"} {
+	for _, path := range []string{"pin-key", "pair-remote", "unpair", "schedule", "deposit", "drill", "export-capsule"} {
 		if got := do("POST", path, []byte(`{}`), true, false); got.Code != 403 {
 			t.Fatalf("%s no csrf %d", path, got.Code)
 		}
 	}
-	if got := do("GET", "export-capsule", nil, true, false); got.Code != 412 {
+	if got := do("POST", "export-capsule", nil, true, true); got.Code != 412 {
 		t.Fatalf("unpaired export %d %s", got.Code, got.Body.String())
+	}
+	if got := do("GET", "export-capsule", nil, true, false); got.Code != 405 {
+		t.Fatalf("GET export accepted: %d", got.Code)
 	}
 	key, err := recoverykey.Generate()
 	if err != nil {
@@ -88,7 +88,7 @@ func TestBackupRoutesRequireAdminStepUpAndCSRF(t *testing.T) {
 	if got := do("POST", "deposit", nil, true, true); got.Code != 200 {
 		t.Fatalf("run %d %s", got.Code, got.Body.String())
 	}
-	if got := do("GET", "export-capsule", nil, true, false); got.Code != 200 || got.Header().Get("Content-Type") != "application/octet-stream" {
+	if got := do("POST", "export-capsule", nil, true, true); got.Code != 200 || got.Header().Get("Content-Type") != "application/octet-stream" {
 		t.Fatalf("export %d", got.Code)
 	}
 	if got := do("GET", "status", nil, true, false); got.Code != 200 || strings.Contains(got.Body.String(), cfg.Secrets.ServerSaltKey) {

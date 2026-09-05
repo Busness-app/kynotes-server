@@ -12,8 +12,8 @@ Recovery extension for Myslop #290: sealed capsule collection and restore live i
 `docs/RESTORE.md`. The existing local plaintext commands are now `copy-data-dir`
 and `restore-data-dir`; sealed `restore --in --to` consumes custodian shares on stdin.
 The backup API is `/api/v1/admin/backup/{status,pin-key,pair-remote,unpair,schedule,
-deposit,drill,export-capsule}`; status/export are GET, other operations POST. Mutations
-use admin+CSRF+step-up, export admin+step-up. Backup errors retain the existing envelope.
+deposit,drill,export-capsule}`; status is GET; all other operations, including export, are POST. Mutations
+use admin+CSRF+step-up. Backup errors retain the existing envelope.
 
 Source documents: [DESIGN.md](DESIGN.md), [SECURITY.md](SECURITY.md),
 [LOGGING.md](LOGGING.md), [CONTRIBUTING.md](CONTRIBUTING.md), [AGENTS.md](AGENTS.md).
