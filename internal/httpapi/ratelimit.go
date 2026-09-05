@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"net"
 	"net/http"
 	"strconv"
 	"strings"
@@ -60,12 +61,15 @@ func canonicalAPIPath(p string) string {
 
 func rateLimitMiddleware(cfg config.Config, db *sql.DB, next http.Handler) http.Handler {
 	l := newLimiter()
+	proxies := parseTrustedProxies(cfg.Server.TrustedProxies)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		limit, rate, label := 0, 0, ""
 		// Every /api/v1/… route is also served at /api/…, so match the canonical
 		// spelling. Keying on "v1" alone lets a caller opt out of the limit.
 		path := canonicalAPIPath(r.URL.Path)
 		switch {
+		case path == "/api/v1/auth/oidc/login" || path == "/auth/oidc/login":
+			limit, rate, label = cfg.RateLimit.LoginPerMinute, cfg.RateLimit.LoginPerMinute, "oidc"
 		case path == "/api/v1/auth/login" || path == "/api/v1/auth/login-params":
 			limit, rate, label = cfg.RateLimit.LoginPerMinute, cfg.RateLimit.LoginPerMinute, "login"
 		case path == "/api/v1/auth/step-up" || path == "/api/v1/auth/password" || path == "/api/v1/auth/recover":
@@ -79,8 +83,8 @@ func rateLimitMiddleware(cfg config.Config, db *sql.DB, next http.Handler) http.
 		if label == "pairing" {
 			refill = float64(rate) / 3600
 		}
-		identity := clientIP(r)
-		if label != "login" && db != nil {
+		identity := rateLimitClientIP(r, cfg.Server.BehindProxy, proxies)
+		if label != "login" && label != "oidc" && db != nil {
 			if s, err := auth.ResolveSession(db, r, time.Now().UTC()); err == nil {
 				identity = s.UserID
 			}
@@ -92,4 +96,33 @@ func rateLimitMiddleware(cfg config.Config, db *sql.DB, next http.Handler) http.
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+func parseTrustedProxies(cidrs []string) []*net.IPNet {
+	var networks []*net.IPNet
+	for _, cidr := range cidrs {
+		if _, network, err := net.ParseCIDR(cidr); err == nil {
+			networks = append(networks, network)
+		}
+	}
+	return networks
+}
+
+// Walk from the trusted immediate peer toward the client. A sender cannot select
+// its bucket by prepending forged addresses. Invalid suffixes fall back to the peer.
+func rateLimitClientIP(r *http.Request, behindProxy bool, proxies []*net.IPNet) string {
+	if !behindProxy || !trusted(remoteIP(r), proxies) {
+		return clientIP(r)
+	}
+	chain := strings.Split(strings.Join(r.Header.Values("X-Forwarded-For"), ","), ",")
+	for i := len(chain) - 1; i >= 0; i-- {
+		ip := net.ParseIP(strings.TrimSpace(chain[i]))
+		if ip == nil {
+			return clientIP(r)
+		}
+		if !trusted(ip, proxies) {
+			return normalizeClientIP(ip)
+		}
+	}
+	return clientIP(r)
 }

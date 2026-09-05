@@ -13,6 +13,7 @@ import (
 	"github.com/Busness-app/kynotes-server/internal/auth"
 	"github.com/Busness-app/kynotes-server/internal/ids"
 	"github.com/Busness-app/kynotes-server/internal/sso"
+	"github.com/Busness-app/kynotes-server/internal/storage"
 )
 
 var supportedThemes = map[string]bool{"Dark Matter": true, "Light Matter": true, "Tropics": true, "Tropic Night": true, "Ocean": true, "Coffee": true, "White Cliffs": true, "Cyber Punk": true, "Neon Purple": true, "Space": true, "Sky": true, "Forest": true, "Sun": true, "Patina Ky": true, "Polished Ky": true}
@@ -25,12 +26,7 @@ func recordAudit(db *sql.DB, actor, event, container, object, requestID string) 
 // "failure"; reason is operator-facing text already bounded by the caller and
 // never a secret.
 func recordAuditOutcome(db *sql.DB, actor, event, container, object, outcome, reason, requestID string) {
-	id, err := ids.Mint("aud")
-	if err != nil {
-		return
-	}
-	now := time.Now().UTC().Format(time.RFC3339)
-	_, _ = db.Exec(`INSERT INTO audit_events(id,user_id,event,container_id,object_id,created_at,at,outcome,actor_user_id,request_id,reason_code) VALUES(?,?,?,?,?,?,?,?,?,?,?)`, id, actor, event, container, object, now, now, outcome, actor, requestID, reason)
+	_ = storage.RecordAuditOutcome(db, actor, event, container, object, outcome, reason, requestID)
 }
 
 // AdminRoutes exposes metadata-only administration. It never returns secrets,

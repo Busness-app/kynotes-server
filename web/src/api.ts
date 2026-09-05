@@ -10,11 +10,11 @@ export type Note = { id: string; title: string; body: string; version: number; u
 type APIError = { error?: { code?: string; message?: string }; conflictId?: string; currentVersion?: number };
 export class APIRequestError extends Error { code?: string; conflictId?: string; currentVersion?: number; constructor(message: string, detail: APIError) { super(message); this.name = "APIRequestError"; this.code = detail.error?.code; this.conflictId = detail.conflictId; this.currentVersion = detail.currentVersion; } }
 
-function csrfToken(): string {
+export function csrfToken(): string {
   return document.cookie.split("; ").find((v) => v.startsWith("csrf_token="))?.slice(11) ?? "";
 }
 
-async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
+export async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const method = (init.method ?? "GET").toUpperCase();
   const headers = new Headers(init.headers);
   headers.set("Accept", "application/json");

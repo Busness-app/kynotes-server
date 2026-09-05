@@ -17,6 +17,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/Busness-app/ky-primitives/oidcverify"
 )
 
 // SSOSettings holds the OpenID Connect and KySignOn sync configuration.
@@ -36,6 +38,7 @@ type Store struct {
 	db       *sql.DB
 	cached   SSOSettings
 	inMemory bool
+	verifier *oidcverify.Verifier
 }
 
 // NewStore initializes a new Store backed by the SQLite database.
@@ -154,15 +157,17 @@ type DiscoveryDoc struct {
 
 // DiscoverEndpoints fetches the OpenID configuration from the issuer URL.
 func DiscoverEndpoints(ctx context.Context, issuerURL string) (*DiscoveryDoc, error) {
-	issuerURL = strings.TrimRight(issuerURL, "/")
-	wellKnown := issuerURL + "/.well-known/openid-configuration"
+	if err := requireHTTPS(issuerURL); err != nil {
+		return nil, err
+	}
+	wellKnown := strings.TrimRight(issuerURL, "/") + "/.well-known/openid-configuration"
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, wellKnown, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create discovery request: %w", err)
 	}
 
-	client := &http.Client{Timeout: 10 * time.Second}
+	client := oidcClient()
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("discovery request failed: %w", err)
@@ -174,10 +179,18 @@ func DiscoverEndpoints(ctx context.Context, issuerURL string) (*DiscoveryDoc, er
 	}
 
 	var doc DiscoveryDoc
-	if err := json.NewDecoder(resp.Body).Decode(&doc); err != nil {
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&doc); err != nil {
 		return nil, fmt.Errorf("failed to decode discovery document: %w", err)
 	}
 
+	if doc.Issuer != issuerURL {
+		return nil, errors.New("OIDC discovery issuer mismatch")
+	}
+	for _, endpoint := range []string{doc.AuthorizationEndpoint, doc.TokenEndpoint, doc.JWKSURI} {
+		if err := requireHTTPS(endpoint); err != nil {
+			return nil, err
+		}
+	}
 	return &doc, nil
 }
 
@@ -210,6 +223,9 @@ type TokenResponse struct {
 
 // ExchangeCode exchanges an authorization code for tokens.
 func ExchangeCode(ctx context.Context, tokenEndpoint, clientID, clientSecret, code, redirectURI, codeVerifier string) (*TokenResponse, error) {
+	if err := requireHTTPS(tokenEndpoint); err != nil {
+		return nil, err
+	}
 	data := url.Values{
 		"grant_type":    {"authorization_code"},
 		"code":          {code},
@@ -227,16 +243,19 @@ func ExchangeCode(ctx context.Context, tokenEndpoint, clientID, clientSecret, co
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
-	client := &http.Client{Timeout: 10 * time.Second}
+	client := oidcClient()
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
 
-	bodyBytes, _ := io.ReadAll(resp.Body)
+	bodyBytes, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return nil, err
+	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("token exchange failed (%d): %s", resp.StatusCode, string(bodyBytes))
+		return nil, fmt.Errorf("token exchange failed (%d)", resp.StatusCode)
 	}
 
 	var tok TokenResponse
@@ -257,63 +276,42 @@ type Claims struct {
 	Role          string `json:"role"`
 }
 
-// ParseClaims parses claims from an ID token (unverified JWS payload) or userinfo endpoint.
-func ParseClaims(ctx context.Context, idToken, accessToken, userinfoEndpoint string) (*Claims, error) {
-	var claims Claims
-
-	if idToken != "" {
-		parts := strings.Split(idToken, ".")
-		if len(parts) >= 2 {
-			payload, err := base64.RawURLEncoding.DecodeString(parts[1])
-			if err == nil {
-				_ = json.Unmarshal(payload, &claims)
-			}
-		}
+// VerifyClaims accepts identity only from a signed ID token bound to this login.
+func (s *Store) VerifyClaims(ctx context.Context, settings SSOSettings, doc *DiscoveryDoc, idToken, nonce string) (*Claims, error) {
+	s.mu.Lock()
+	v := s.verifier
+	if v == nil || v.Issuer != settings.IssuerURL || v.Audience != settings.ClientID || v.JWKSURL != doc.JWKSURI {
+		v = &oidcverify.Verifier{Issuer: settings.IssuerURL, Audience: settings.ClientID, JWKSURL: doc.JWKSURI, HTTPClient: oidcClient()}
+		s.verifier = v
 	}
-
-	if (claims.Subject == "" || claims.Email == "") && userinfoEndpoint != "" && accessToken != "" {
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, userinfoEndpoint, nil)
-		if err == nil {
-			req.Header.Set("Authorization", "Bearer "+accessToken)
-			client := &http.Client{Timeout: 5 * time.Second}
-			resp, err := client.Do(req)
-			if err == nil && resp.StatusCode == http.StatusOK {
-				defer resp.Body.Close()
-				var uClaims Claims
-				if err := json.NewDecoder(resp.Body).Decode(&uClaims); err == nil {
-					if claims.Subject == "" {
-						claims.Subject = uClaims.Subject
-					}
-					if claims.Email == "" {
-						claims.Email = uClaims.Email
-					}
-					if claims.Name == "" {
-						claims.Name = uClaims.Name
-					}
-					if claims.Username == "" {
-						claims.Username = uClaims.Username
-					}
-					if claims.Role == "" {
-						claims.Role = uClaims.Role
-					}
-				}
-			}
-		}
+	s.mu.Unlock()
+	if nonce == "" || settings.ClientID == "" {
+		return nil, errors.New("missing OIDC login binding")
 	}
-
-	if claims.Subject == "" {
-		return nil, errors.New("no subject claim found in ID token or userinfo")
+	verified, err := v.VerifyWithNonce(ctx, idToken, nonce)
+	if err != nil {
+		return nil, err
 	}
-
+	claims := &Claims{Subject: verified.Subject, Email: verified.String("email"), Name: verified.String("name"), Username: verified.String("preferred_username"), Role: verified.String("role")}
+	if raw := verified.Raw["email_verified"]; raw != nil {
+		_ = json.Unmarshal(raw, &claims.EmailVerified)
+	}
 	if claims.Username == "" {
-		if claims.Email != "" {
-			claims.Username = strings.Split(claims.Email, "@")[0]
-		} else {
-			claims.Username = claims.Subject
-		}
+		claims.Username = claims.Subject
 	}
+	return claims, nil
+}
 
-	return &claims, nil
+func oidcClient() *http.Client {
+	return &http.Client{Timeout: 10 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return errors.New("OIDC redirects refused") }}
+}
+
+func requireHTTPS(raw string) error {
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme != "https" || u.Host == "" || u.User != nil || u.Fragment != "" {
+		return errors.New("OIDC endpoint must be HTTPS without credentials or fragment")
+	}
+	return nil
 }
 
 // SystemPairingRequest represents the registration payload sent to KySignOn.
@@ -354,14 +352,17 @@ func PairWithKySignOn(ctx context.Context, issuerURL, pairingToken, callbackURL 
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	client := &http.Client{Timeout: 10 * time.Second}
+	client := oidcClient()
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("pairing request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
-	bodyBytes, _ := io.ReadAll(resp.Body)
+	bodyBytes, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return nil, err
+	}
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("pairing failed (%d): %s", resp.StatusCode, string(bodyBytes))
 	}

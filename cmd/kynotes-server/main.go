@@ -30,14 +30,30 @@ func main() {
 		}
 		return
 	}
-	if len(os.Args) > 1 && os.Args[1] == "backup" {
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "mirror-blobs", "fetch-blobs", "test-blob-target":
+			if e := mirrorCommand(os.Args[1], os.Args[2:]); e != nil {
+				fmt.Fprintln(os.Stderr, e)
+				os.Exit(1)
+			}
+			return
+		case "deposit", "export-capsule", "backup-drill", "restore":
+			if e := capsuleCommand(os.Args[1], os.Args[2:]); e != nil {
+				fmt.Fprintln(os.Stderr, e)
+				os.Exit(1)
+			}
+			return
+		}
+	}
+	if len(os.Args) > 1 && os.Args[1] == "copy-data-dir" {
 		if e := backupCommand(os.Args[2:]); e != nil {
 			fmt.Fprintln(os.Stderr, e)
 			os.Exit(1)
 		}
 		return
 	}
-	if len(os.Args) > 1 && os.Args[1] == "restore" {
+	if len(os.Args) > 1 && os.Args[1] == "restore-data-dir" {
 		if e := restoreCommand(os.Args[2:]); e != nil {
 			fmt.Fprintln(os.Stderr, e)
 			os.Exit(1)
@@ -86,7 +102,15 @@ func main() {
 	path := flag.String("config", "/data/kynotes.yaml", "config path")
 	check := flag.Bool("check-config", false, "validate configuration")
 	version := flag.Bool("version", false, "print version")
+	if err := rejectUnknownCommand(os.Args[1:]); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(2)
+	}
 	flag.Parse()
+	if flag.NArg() != 0 {
+		fmt.Fprintln(os.Stderr, "unexpected positional arguments; server mode accepts flags only")
+		os.Exit(2)
+	}
 	if *version {
 		fmt.Println("kynotes-server dev")
 		return
@@ -154,7 +178,7 @@ func gcCommand(args []string) error {
 func mustDuration(v string) time.Duration { d, _ := time.ParseDuration(v); return d }
 func backupCommand(args []string) error {
 	if len(args) < 2 || args[0] != "--out" {
-		return fmt.Errorf("usage: backup --out <dir> [--config <path>]")
+		return fmt.Errorf("usage: copy-data-dir --out <dir> [--config <path>]")
 	}
 	configPath := commandConfig(args)
 	c, e := config.Load(configPath)
@@ -173,7 +197,7 @@ func backupCommand(args []string) error {
 }
 func restoreCommand(args []string) error {
 	if len(args) < 2 || args[0] != "--in" {
-		return fmt.Errorf("usage: restore --in <dir> [--force]")
+		return fmt.Errorf("usage: restore-data-dir --in <dir> [--force]")
 	}
 	in := args[1]
 	force := false
@@ -371,4 +395,15 @@ func userCommand(args []string) error {
 	}
 	fmt.Fprintf(os.Stdout, "recovery code: %s\nStore it offline; it is shown once and unlocks the account without the password.\n", code)
 	return nil
+}
+
+// Called only after all supported subcommands have dispatched and returned.
+func rejectUnknownCommand(args []string) error {
+	if len(args) == 0 || strings.HasPrefix(args[0], "-") {
+		return nil
+	}
+	if args[0] == "backup" {
+		return fmt.Errorf("backup was removed; use copy-data-dir for a local directory copy or deposit for a sealed capsule")
+	}
+	return fmt.Errorf("unknown subcommand %q; server mode accepts flags only", args[0])
 }

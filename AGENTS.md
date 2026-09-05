@@ -48,7 +48,7 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
 
 - `internal/httpapi`: opaque routing ciphertext, role-gated mutations, and
   device-validated envelope writes are covered by the package integration
-  tests; login, password change, step-up, recover, device, pairing, and upload
+  tests; password/OIDC login, password change, step-up, recover, device, pairing, and upload
   endpoints use in-memory token buckets. Upload retries are byte-checked, and preview uploads remain
   content-addressed without creating an attachment row. Admin settings/users,
   audit metadata, team membership, and encrypted comment reads/writes are
@@ -118,21 +118,28 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   and OpenID Connect single sign-on integration.
 - `internal/sso` and `internal/httpapi` handle OpenID Connect PKCE authentication,
   automated account provisioning, KySignOn system pairing (`POST /api/v1/admin/sso/pair`),
-  and HMAC-SHA256 verified directory synchronization webhooks (`POST /api/v1/sync/events`).
-- KyBackup owns backup/restore; cross-server workspace migration is deferred to
-  v2.
+  and directory synchronization webhooks (`POST /api/v1/sync/events`). ID tokens use
+  `oidcverify` with issuer/audience/nonce binding and a one-use server-side PKCE transaction.
+  Login never adopts an existing username; trusted directory sync can link an unbound
+  local account but refuses a conflicting subject. `syncauth` verifies every webhook
+  alias; migration `0014_sso_sync_events.sql` commits replay admission with account
+  changes so a failed application remains retryable. Tests cover real TLS/JWKS signatures,
+  forged claims, metadata tampering, concurrent/restarted replay, and rollback.
+- `internal/backup/AGENTS.md` owns sealed capsule collection, service operations,
+  token compatibility and authenticated restore checks. Cross-server workspace migration
+  remains deferred to v2.
 - `internal/web` embeds the production `web/dist` bundle into the server image;
   update the checked-in embed after frontend bundle changes.
 - Verification for server changes: `go test -race ./...`, `go vet ./...`, and
   `gofmt -l .`.
-- Backups: `docs/superpowers/plans/2026-09-04-kynotes-kyrecovery-backup.md` wires
-  `ky-primitives/recoveryclient` (sealed capsules to KyRecovery and a local directory);
-  `docs/superpowers/plans/2026-09-05-kynotes-blob-mirror.md` mirrors the attachment
-  store, which the capsule never carries. Until those land, `kynotes-server backup --out`
-  and `restore --in` are plaintext directory copies taken with the server stopped, and
-  there is no KyRecovery client in this repo. The wire contract lives in
-  `kyrecovery-server/zero_code_pairing_handoff_spec.md` (v2), not here. `config.Backup`
-  (`KYNOTES_BACKUP_*`) and `docker-compose.lan-dns.yml` are already in place for it.
+- Backups use `ky-primitives/recoveryclient` through `internal/backup`; HTTP admin,
+  CSRF and step-up checks gate mutations, and export requires an audit write. The CLI
+  owns the same data-directory lock as the server; `restore --in --to` is the only
+  custodian-share/capsule-open entry point and revokes restored sessions. Legacy local
+  plaintext commands are `copy-data-dir` and `restore-data-dir`. Capsules exclude all
+  blob bytes, including note versions; full recovery needs the separate blob store.
+  See `docs/RESTORE.md` and `docs/DEPLOYMENT.md`. The scheduler polls each minute,
+  counts from last attempt and drains active work before SQLite closes.
 - Passwords and recovery codes are Argon2id PHC strings via `ky-primitives/password`
   (scrypt verifiers are refused); login secrets derive through `ky-primitives/derive`
   with label `kynotes/auth/v1`; recovery codes come from `ky-primitives/recoverycode`
@@ -144,3 +151,25 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
 - Destructive admin routes sit behind `auth.RequireStepUp`: the browser re-proves the
   derived login secret at `POST /api/v1/auth/step-up` (`web/src/stepup.ts`) and the
   grant lasts `auth.StepUpWindow`. Routes answer `403 step_up_required` until then.
+
+- `internal/mirror/AGENTS.md` owns streaming ciphertext replication and recovery over
+  `ky-primitives/offsite@v0.1.0`. Migration `0015_blob_replicas.sql` tracks the single
+  destination identity; credentials remain in deployment configuration and sealed capsules.
+  Admin mirror status/actions share backup authorization. Capsule-triggered runs use
+  snapshot inventory; restore fetch uses the restored database regardless of replica rows.
+- Admin settings grid content must allow shrinking (`min-width: 0`); backup inputs
+  stay within their card. Verify the backup surface at 390px and desktop after layout edits.
+
+- OIDC login aliases share a per-IP token bucket. Pending login state stays bounded
+  at 1024 entries and evicts the oldest expiry rather than refusing every new user;
+  expired/evicted/consumed callbacks fail closed. Verify with
+  `TestSSOLoginSurvivesPendingFlood` and `TestSSOTransactionExpiryAndCapacity`.
+- CLI server mode accepts flags only. Removed `backup` names `copy-data-dir`/`deposit`
+  in its error; unknown commands and trailing positional arguments exit before loading
+  configuration or starting the server. `TestUnknownSubcommandIsRejected` covers dispatch.
+
+- All IP-keyed rate limits honor X-Forwarded-For only with behind_proxy enabled and
+  a trusted immediate peer. Walk the chain from the right to the first untrusted IP;
+  malformed suffixes fall back to the socket peer. Preserve IPv6 /64 grouping and
+  existing authenticated-user bucket overrides. Verify direct/proxied flood isolation
+  and spoofed/malformed/multiple-header cases in the HTTP API tests.

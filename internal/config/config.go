@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/Busness-app/ky-primitives/keyfile"
+	"github.com/Busness-app/ky-primitives/offsite"
 	"gopkg.in/yaml.v3"
 )
 
@@ -66,10 +67,11 @@ type Log struct {
 // Backup configures sealed-capsule backups. The schedule here is only the
 // default; the admin setting in the UI overrides it.
 type Backup struct {
-	Dir                  string `yaml:"dir"`                    // KYNOTES_BACKUP_DIR: local directory for sealed copies
-	Keep                 int    `yaml:"keep"`                   // KYNOTES_BACKUP_KEEP: newest N local copies kept
-	DepositInterval      string `yaml:"deposit_interval"`       // KYNOTES_BACKUP_DEPOSIT_INTERVAL: "0" disables, floor 15m
-	AllowPrivateRecovery bool   `yaml:"allow_private_recovery"` // KYNOTES_BACKUP_ALLOW_PRIVATE_RECOVERY: admit a LAN KyRecovery
+	BlobTarget           BlobTarget `yaml:"blob_target"`
+	Dir                  string     `yaml:"dir"`                    // KYNOTES_BACKUP_DIR: local directory for sealed copies
+	Keep                 int        `yaml:"keep"`                   // KYNOTES_BACKUP_KEEP: newest N local copies kept
+	DepositInterval      string     `yaml:"deposit_interval"`       // KYNOTES_BACKUP_DEPOSIT_INTERVAL: "0" disables, floor 15m
+	AllowPrivateRecovery bool       `yaml:"allow_private_recovery"` // KYNOTES_BACKUP_ALLOW_PRIVATE_RECOVERY: admit a LAN KyRecovery
 }
 
 // AppName is the service name sealed into every capsule and pinned by
@@ -84,7 +86,13 @@ func Defaults() Config {
 	return Config{Server: Server{Bind: "0.0.0.0:8080", BehindProxy: true, TrustedProxies: []string{"127.0.0.1/32"}, ReadHeaderTimeout: "10s", ReadTimeout: "60s", WriteTimeout: "120s", IdleTimeout: "120s", ShutdownGrace: "20s", MaxRequestBytes: 1048576}, DataDir: "/data", Limits: Limits{AttachmentMaxBytes: 26214400, ChunkBytes: 4194304, ObjectMaxBytes: 10485760, UploadSessionTTL: "15m", UserQuotaBytes: 1073741824, TeamQuotaBytes: 5368709120}, GC: GC{Enabled: true, Retention: "168h", Interval: "1h"}, RateLimit: RateLimit{LoginPerMinute: 10, PairingPerHour: 20, UploadPerMinute: 60}, Log: Log{Level: "info", Format: "json"}, Backup: Backup{Keep: 7, DepositInterval: "24h"}}
 }
 
-func Load(path string) (Config, error) {
+func Load(path string) (Config, error) { return load(path, false) }
+
+// LoadBlobTargetProbe permits an absent SFTP pin only for the rejecting discovery
+// handshake. offsite.Test never authenticates to an unpinned host.
+func LoadBlobTargetProbe(path string) (Config, error) { return load(path, true) }
+
+func load(path string, probe bool) (Config, error) {
 	c := Defaults()
 	if path != "" {
 		b, err := os.ReadFile(path)
@@ -102,6 +110,19 @@ func Load(path string) (Config, error) {
 	}
 	if err := loadSecrets(&c); err != nil {
 		return c, err
+	}
+	if probe {
+		validation := c
+		validation.Backup.BlobTarget = BlobTarget{}
+		if err := Validate(validation); err != nil {
+			return c, err
+		}
+		if c.Backup.BlobTarget.URL != "" {
+			if _, err := offsite.Parse(c.Backup.BlobTarget.Offsite()); err != nil {
+				return c, errors.New("invalid blob probe target")
+			}
+		}
+		return c, nil
 	}
 	return c, Validate(c)
 }
@@ -131,6 +152,7 @@ func loadSecrets(c *Config) error {
 	return nil
 }
 func applyEnv(c *Config) error {
+	applyBlobEnv(&c.Backup.BlobTarget)
 	if v := os.Getenv("KYNOTES_PORT"); v != "" {
 		c.Server.Bind = "0.0.0.0:" + v
 	} else if v := os.Getenv("PORT"); v != "" {
@@ -256,6 +278,9 @@ func duration(name, value string) error {
 	return nil
 }
 func Validate(c Config) error {
+	if err := ValidateBlobTarget(c.Backup.BlobTarget); err != nil {
+		return err
+	}
 	if c.DataDir == "" {
 		return errors.New("data_dir: required")
 	}
@@ -314,8 +339,8 @@ func Validate(c Config) error {
 	if c.Backup.Keep < 1 {
 		return errors.New("backup.keep: must be at least 1")
 	}
-	if d, err := time.ParseDuration(c.Backup.DepositInterval); err != nil || d < 0 || (d != 0 && d < MinBackupDepositInterval) {
-		return fmt.Errorf("backup.deposit_interval: 0 (off) or at least %s", MinBackupDepositInterval)
+	if d, err := time.ParseDuration(c.Backup.DepositInterval); err != nil || d < 0 || d > 366*24*time.Hour || (d != 0 && d < MinBackupDepositInterval) {
+		return fmt.Errorf("backup.deposit_interval: 0 (off), or %s through 8784h", MinBackupDepositInterval)
 	}
 	for _, p := range [][2]string{{"server.read_header_timeout", c.Server.ReadHeaderTimeout}, {"server.read_timeout", c.Server.ReadTimeout}, {"server.write_timeout", c.Server.WriteTimeout}, {"server.idle_timeout", c.Server.IdleTimeout}, {"server.shutdown_grace", c.Server.ShutdownGrace}, {"limits.upload_session_ttl", c.Limits.UploadSessionTTL}, {"gc.interval", c.GC.Interval}} {
 		if err := duration(p[0], p[1]); err != nil {
