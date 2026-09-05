@@ -125,20 +125,21 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   alias; migration `0014_sso_sync_events.sql` commits replay admission with account
   changes so a failed application remains retryable. Tests cover real TLS/JWKS signatures,
   forged claims, metadata tampering, concurrent/restarted replay, and rollback.
-- KyBackup owns backup/restore; cross-server workspace migration is deferred to
-  v2.
+- `internal/backup/AGENTS.md` owns sealed capsule collection, service operations,
+  token compatibility and authenticated restore checks. Cross-server workspace migration
+  remains deferred to v2.
 - `internal/web` embeds the production `web/dist` bundle into the server image;
   update the checked-in embed after frontend bundle changes.
 - Verification for server changes: `go test -race ./...`, `go vet ./...`, and
   `gofmt -l .`.
-- Backups: `docs/superpowers/plans/2026-09-04-kynotes-kyrecovery-backup.md` wires
-  `ky-primitives/recoveryclient` (sealed capsules to KyRecovery and a local directory);
-  `docs/superpowers/plans/2026-09-05-kynotes-blob-mirror.md` mirrors the attachment
-  store, which the capsule never carries. Until those land, `kynotes-server backup --out`
-  and `restore --in` are plaintext directory copies taken with the server stopped, and
-  there is no KyRecovery client in this repo. The wire contract lives in
-  `kyrecovery-server/zero_code_pairing_handoff_spec.md` (v2), not here. `config.Backup`
-  (`KYNOTES_BACKUP_*`) and `docker-compose.lan-dns.yml` are already in place for it.
+- Backups use `ky-primitives/recoveryclient` through `internal/backup`; HTTP admin,
+  CSRF and step-up checks gate mutations, and export requires an audit write. The CLI
+  owns the same data-directory lock as the server; `restore --in --to` is the only
+  custodian-share/capsule-open entry point and revokes restored sessions. Legacy local
+  plaintext commands are `copy-data-dir` and `restore-data-dir`. Capsules exclude all
+  blob bytes, including note versions; full recovery needs the separate blob store.
+  See `docs/RESTORE.md` and `docs/DEPLOYMENT.md`. The scheduler polls each minute,
+  counts from last attempt and drains active work before SQLite closes.
 - Passwords and recovery codes are Argon2id PHC strings via `ky-primitives/password`
   (scrypt verifiers are refused); login secrets derive through `ky-primitives/derive`
   with label `kynotes/auth/v1`; recovery codes come from `ky-primitives/recoverycode`

@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/Busness-app/kynotes-server/internal/backup"
 	"github.com/Busness-app/kynotes-server/internal/blobstore"
 	"github.com/Busness-app/kynotes-server/internal/config"
 	"github.com/Busness-app/kynotes-server/internal/logging"
@@ -19,12 +20,15 @@ func NewRouter(log *logging.Logger, max int64, ready func() bool, extras ...any)
 	var db *sql.DB
 	var blobs *blobstore.Store
 	var cfg config.Config
+	var backups *backup.Service
 	for _, extra := range extras {
 		switch v := extra.(type) {
 		case *sql.DB:
 			db = v
 		case *blobstore.Store:
 			blobs = v
+		case *backup.Service:
+			backups = v
 		case config.Config:
 			cfg = v
 		}
@@ -34,6 +38,9 @@ func NewRouter(log *logging.Logger, max int64, ready func() bool, extras ...any)
 		AuthRoutes(mux, db, cfg)
 		SSORoutes(mux, db, cfg, ssoStore)
 		AdminRoutes(mux, db, ssoStore)
+		if backups != nil {
+			BackupRoutes(mux, db, backups)
+		}
 		ContainerRoutes(mux, db)
 		SyncRoutes(mux, db)
 		CollabRoutes(mux, db)

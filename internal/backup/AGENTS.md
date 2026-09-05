@@ -1,0 +1,25 @@
+# Purpose
+
+KyNotes adapters over `ky-primitives/recoveryclient`: collection, verification,
+service operations, and audit. Shared transport and capsule mechanics stay in the library.
+
+# Local Contracts
+
+- Capsules carry `kynotes.sqlite`, effective secrets, `recovery.pub`, configuration,
+  and blob inventory. Note-version and attachment blob bytes are recovered separately.
+- Snapshot the live SQLite handle. Collect recipe counts and inventory from that snapshot.
+- `TokenLabel` and effective deployment secret bytes are compatibility contracts.
+- Service operations serialize pin/pair/run/export/drill; CLI takes the same directory
+  lock as the server. Close waits for bounded operations before SQLite closes.
+- Audit uses stable codes and safe metadata; an unaudited export returns no bytes.
+- `Checks` validates the opened manifest and requires all fixed files, tables, counts,
+  usable secrets, an active admin, recovery pin, and matching blob inventory.
+- Only `cmd/kynotes-server/backup.go:restoreCapsule` may open suite capsules or combine
+  shares. Drills use library-generated throwaway keys and protected scratch.
+
+# Verification
+
+`go test -race ./internal/backup ./internal/storage ./internal/httpapi ./cmd/kynotes-server`
+proves snapshot, token compatibility, destination outcomes, route hardening, synthetic
+restore, and decrypt boundary. Prove the guard once per boundary change by planting a
+forbidden production call and removing it after the expected failure.

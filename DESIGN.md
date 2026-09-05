@@ -158,9 +158,13 @@ Use SQLite for metadata and an encrypted filesystem blob store for content.
 The instance owns one configurable data directory containing the database,
 encrypted blobs, key envelopes, sessions, audit records, and configuration.
 
-The directory can be backed up by stopping the server and copying it as one
-consistent unit. Restore is performed by replacing the data directory while
-the server is stopped, followed by a database integrity check.
+The directory can be copied locally with the server stopped. Sealed disaster-recovery
+capsules snapshot the live SQLite handle and include effective deployment secrets,
+recovery public key, configuration and blob inventory. `ky-primitives/recoveryclient`
+owns sealing, pairing, destinations, retention and scheduling. The product validates
+restored table counts, keys and inventory and revokes restored sessions. Blob payloads
+(note-version and attachment ciphertext) require separate mirroring and restoration.
+A database-only restore does not establish that content is recoverable.
 
 The blob store should be content-addressed by the encrypted blob digest. This
 supports deduplication, immutable versions, and garbage collection after

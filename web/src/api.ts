@@ -14,7 +14,7 @@ function csrfToken(): string {
   return document.cookie.split("; ").find((v) => v.startsWith("csrf_token="))?.slice(11) ?? "";
 }
 
-async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
+export async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const method = (init.method ?? "GET").toUpperCase();
   const headers = new Headers(init.headers);
   headers.set("Accept", "application/json");

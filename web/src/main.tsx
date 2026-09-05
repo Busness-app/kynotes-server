@@ -1,3 +1,4 @@
+import { AdminBackup } from "./components/AdminBackup";
 import React, { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
@@ -2260,6 +2261,7 @@ function SettingsView({
             <a href="#users">Users</a>
             <a href="#teams">Teams</a>
             <a href="#audit">Audit log</a>
+ <a href="#backups">Backups</a>
           </nav>
         )}
         {!admin && (
@@ -2316,6 +2318,7 @@ function SettingsView({
               </p>
             </section>
             <AdminSSO />
+ <AdminBackup username={username} />
             <section id="users" className="config-card">
               <h2>Users</h2>
               <AdminCreateUser

@@ -63,12 +63,30 @@ change hold scrypt verifiers, which are refused; recreate them.
 | `KYNOTES_DNS` | unset | Only with `docker-compose.lan-dns.yml`: the LAN resolver the container uses, for a KyRecovery that resolves only there. A value in `.env` alone does nothing; pass it on the command line and recreate the container. |
 
 ```bash
-KYNOTES_DNS=192.168.1.1 docker compose -f docker-compose.yml -f docker-compose.lan-dns.yml up -d
+KYNOTES_DNS=192.168.1.1 docker compose -f docker-compose.yml -f docker-compose.lan-dns.yml up -d --build
 docker inspect KyNotes-Server --format '{{.HostConfig.Dns}}'
 ```
 
-Sealed capsule backups and the attachment mirror land in a following release; the
-settings above are read today and the plaintext copy below remains the backup path.
+The admin Backups section supports pin-by-hand, pairing, local sealed copies,
+manual backup, export, drill, unpair and a persisted schedule (off or 15 minutes–366 days).
+The loop polls every minute and counts from the last attempt, including failures.
+A key without a destination is a precondition failure. A remote failure reports any
+local copy that did succeed; a local failure does not cancel the deposit.
+
+Use [RESTORE.md](RESTORE.md) for sealed recovery and the blob-coverage limitations.
+CLI `deposit`, `export-capsule --out FILE` and `backup-drill` take the data-directory
+lock and require a stopped server; the admin UI operates through the live handle.
+`copy-data-dir --out DIR` and `restore-data-dir --in DIR` are local plaintext copies.
+
+Every destructive backup action, including capsule export, requires admin step-up;
+confirm the account password in the backup screen. HTTP mutations also require CSRF.
+Unpair removes URL/token rows only; the KyRecovery admin separately revokes the token.
+The suite key, receipts and local copies remain. Pinning a different key is refused.
+
+TLS protects the incoming key, token and receipt. Pin the suite key manually or compare
+fingerprints out of band. Preserve existing deployment secrets and token sealer labels.
+Shutdown waits for a bounded 16-minute backup operation; Compose allows 17 minutes
+before forcibly terminating the process.
 
 ## Plaintext copy
 

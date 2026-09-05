@@ -1,18 +1,18 @@
 # KyNotes wires ky-primitives/recoveryclient (Plan B)
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> Implementation is governed by [the #290 execution plan](2026-09-05-kynotes-myslop-290-execution.md). The historical sketches below are task references; current code and tagged APIs control signatures.
 
 **Goal:** Bring kynotes-server to the KySignOn backup spec (all fourteen rows) as a thin adapter over `github.com/Busness-app/ky-primitives/recoveryclient`, with Plan A's adapters underneath.
 
 **Architecture:** One small product package, `internal/backup`, holds only what the library cannot know: what to seal (`Collect`: database, secrets, recovery key, config manifest; never attachments), the token sealer, the drill checks, and a `Service` struct that binds config, store and library into the operations the routes, CLI and scheduler call. Each caller records the result through `recordAuditOutcome`. The frontend gets one `AdminBackup.tsx` lifted from kysignon.
 
-**Tech Stack:** Go 1.26.6, `ky-primitives` **v0.5.0** (tagged 2026-09-05), React + Vite. kysignon's adapter over the lib is PR kysignon-server #21 (`internal/backup/{adapter,payload,drill}.go`, `nodecrypt_test.go`): copy that shape, not the pre-lib handlers.
+**Tech Stack:** Go 1.26.6, `ky-primitives` **v0.5.1** (tagged 2026-09-05), React + Vite. kysignon's adapter over the lib is PR kysignon-server #21 (`internal/backup/{adapter,payload,drill}.go`, `nodecrypt_test.go`): copy that shape, not the pre-lib handlers.
 
 **Spec:** Board folders `kynotes-kyrecovery-deposit` and `ky-primitives-kyrecovery-package` (myslop); durable copies `ky_server_base/docs/superpowers/plans/2026-09-04-bring-suite-to-kysignon-spec.md` (the fourteen rows, hazards, proof steps) and `.../2026-09-04-kynotes-kyrecovery-deposit.md`. Library reference: `ky-primitives/README.md` section "recoveryclient" and `go doc github.com/Busness-app/ky-primitives/recoveryclient`. Product reference: `kysignon-server` master handlers, `web/src/components/AdminBackup.tsx`, `docs/RESTORE.md`, and, once it lands, the kysignon first-consumer swap (the pattern for handlers over the library).
 
 ## Global Constraints
 
-- **Waits on** kysignon-server #21 merging (the first-consumer adapter this plan copies). v0.5.0 is tagged. Claim `kynotes-kyrecovery-deposit` before starting.
+- KySignOn adapter and v0.5.1 are available; use the shared package, preserving product token labels.
 - Plan A merged first: `storage.GetSetting/SetSetting/DeleteSetting/ErrNotFound`, `recordAuditOutcome`, `auth.RequireStepUp`, `config.Backup`, `config.MinBackupDepositInterval`, `config.AppName`.
 - `service_name` sent at pairing = `config.AppName` = `"KyNotes"` = `Payload.ServiceName` = `RunConfig.AppName`. `Run` refuses a payload whose ServiceName differs from AppName; KyRecovery refuses a deposit whose manifest names anything else.
 - **Decided (Yoshi, 2026-09-05):** the KyRecovery token is sealed at rest by `recoveryclient.NewAESGCMSealer([]byte(Secrets.ServerSaltKey), "kynotes:setting:kyrecovery_token")`; never a plaintext settings row and no new key file. kynotes has no deployment encryption key; the salt key is the one 32-byte secret every deployment already holds and already must protect.
@@ -77,7 +77,7 @@ func Outcome(res Result, err error) (action, outcome string, details map[string]
 
 type Check struct { Name string; Passed bool; Message string }
 type DrillResult struct { Passed bool; Checks []Check; ErrorMessage string; DurationMs int64; SizeBytes int }
-func Drill(ctx, scratchRoot string, payload Payload, checks func(dir string) []Check) (*DrillResult, error)
+func Drill(ctx, scratchRoot string, payload Payload, checks func(dir string, opened capsule.Manifest) []Check) (*DrillResult, error)
 
 func ReadShares(r io.Reader) ([]string, error)
 func Restore(capsulePath, targetDir, expectService string, shareStrings []string, stdout io.Writer) error
@@ -111,7 +111,7 @@ func NoDecryptOutside(t testing.TB, repoRoot string, allowed map[string][]string
 
 ### Task 0: Pin the tag and reconcile
 
-- [ ] **Step 1:** `go get github.com/Busness-app/ky-primitives@v0.5.0 && go mod tidy`. If the tag does not exist yet, stop: post to `ky-primitives-kyrecovery-package` asking for it rather than pinning a pseudo-version in a product.
+- [ ] **Step 1:** `go get github.com/Busness-app/ky-primitives@v0.5.1 && go mod tidy`. If the tag does not exist yet, stop: post to `ky-primitives-kyrecovery-package` asking for it rather than pinning a pseudo-version in a product.
 - [ ] **Step 2:** `go doc -all github.com/Busness-app/ky-primitives/recoveryclient` and `.../recoveryclient/guardtest`; diff against the block above. Edit this plan where they differ; commit `docs(plan): reconcile against ky-primitives v0.5.0`.
 - [ ] **Step 3:** Read `ky-primitives/README.md` "recoveryclient" (the invariant list) and, if merged by then, kysignon's first-consumer PR: its handlers over the library are the pattern for Task 4.
 

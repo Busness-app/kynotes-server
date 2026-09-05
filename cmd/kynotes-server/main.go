@@ -30,14 +30,24 @@ func main() {
 		}
 		return
 	}
-	if len(os.Args) > 1 && os.Args[1] == "backup" {
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "deposit", "export-capsule", "backup-drill", "restore":
+			if e := capsuleCommand(os.Args[1], os.Args[2:]); e != nil {
+				fmt.Fprintln(os.Stderr, e)
+				os.Exit(1)
+			}
+			return
+		}
+	}
+	if len(os.Args) > 1 && os.Args[1] == "copy-data-dir" {
 		if e := backupCommand(os.Args[2:]); e != nil {
 			fmt.Fprintln(os.Stderr, e)
 			os.Exit(1)
 		}
 		return
 	}
-	if len(os.Args) > 1 && os.Args[1] == "restore" {
+	if len(os.Args) > 1 && os.Args[1] == "restore-data-dir" {
 		if e := restoreCommand(os.Args[2:]); e != nil {
 			fmt.Fprintln(os.Stderr, e)
 			os.Exit(1)
@@ -154,7 +164,7 @@ func gcCommand(args []string) error {
 func mustDuration(v string) time.Duration { d, _ := time.ParseDuration(v); return d }
 func backupCommand(args []string) error {
 	if len(args) < 2 || args[0] != "--out" {
-		return fmt.Errorf("usage: backup --out <dir> [--config <path>]")
+		return fmt.Errorf("usage: copy-data-dir --out <dir> [--config <path>]")
 	}
 	configPath := commandConfig(args)
 	c, e := config.Load(configPath)
@@ -173,7 +183,7 @@ func backupCommand(args []string) error {
 }
 func restoreCommand(args []string) error {
 	if len(args) < 2 || args[0] != "--in" {
-		return fmt.Errorf("usage: restore --in <dir> [--force]")
+		return fmt.Errorf("usage: restore-data-dir --in <dir> [--force]")
 	}
 	in := args[1]
 	force := false
