@@ -157,3 +157,5 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   destination identity; credentials remain in deployment configuration and sealed capsules.
   Admin mirror status/actions share backup authorization. Capsule-triggered runs use
   snapshot inventory; restore fetch uses the restored database regardless of replica rows.
+- Admin settings grid content must allow shrinking (`min-width: 0`); backup inputs
+  stay within their card. Verify the backup surface at 390px and desktop after layout edits.
