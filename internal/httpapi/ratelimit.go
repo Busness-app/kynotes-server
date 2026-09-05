@@ -66,6 +66,8 @@ func rateLimitMiddleware(cfg config.Config, db *sql.DB, next http.Handler) http.
 		// spelling. Keying on "v1" alone lets a caller opt out of the limit.
 		path := canonicalAPIPath(r.URL.Path)
 		switch {
+		case path == "/api/v1/auth/oidc/login" || path == "/auth/oidc/login":
+			limit, rate, label = cfg.RateLimit.LoginPerMinute, cfg.RateLimit.LoginPerMinute, "oidc"
 		case path == "/api/v1/auth/login" || path == "/api/v1/auth/login-params":
 			limit, rate, label = cfg.RateLimit.LoginPerMinute, cfg.RateLimit.LoginPerMinute, "login"
 		case path == "/api/v1/auth/step-up" || path == "/api/v1/auth/password" || path == "/api/v1/auth/recover":
@@ -80,7 +82,7 @@ func rateLimitMiddleware(cfg config.Config, db *sql.DB, next http.Handler) http.
 			refill = float64(rate) / 3600
 		}
 		identity := clientIP(r)
-		if label != "login" && db != nil {
+		if label != "login" && label != "oidc" && db != nil {
 			if s, err := auth.ResolveSession(db, r, time.Now().UTC()); err == nil {
 				identity = s.UserID
 			}

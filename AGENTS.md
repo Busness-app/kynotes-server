@@ -48,7 +48,7 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
 
 - `internal/httpapi`: opaque routing ciphertext, role-gated mutations, and
   device-validated envelope writes are covered by the package integration
-  tests; login, password change, step-up, recover, device, pairing, and upload
+  tests; password/OIDC login, password change, step-up, recover, device, pairing, and upload
   endpoints use in-memory token buckets. Upload retries are byte-checked, and preview uploads remain
   content-addressed without creating an attachment row. Admin settings/users,
   audit metadata, team membership, and encrypted comment reads/writes are
@@ -159,3 +159,11 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   snapshot inventory; restore fetch uses the restored database regardless of replica rows.
 - Admin settings grid content must allow shrinking (`min-width: 0`); backup inputs
   stay within their card. Verify the backup surface at 390px and desktop after layout edits.
+
+- OIDC login aliases share a per-IP token bucket. Pending login state stays bounded
+  at 1024 entries and evicts the oldest expiry rather than refusing every new user;
+  expired/evicted/consumed callbacks fail closed. Verify with
+  `TestSSOLoginSurvivesPendingFlood` and `TestSSOTransactionExpiryAndCapacity`.
+- CLI server mode accepts flags only. Removed `backup` names `copy-data-dir`/`deposit`
+  in its error; unknown commands and trailing positional arguments exit before loading
+  configuration or starting the server. `TestUnknownSubcommandIsRejected` covers dispatch.

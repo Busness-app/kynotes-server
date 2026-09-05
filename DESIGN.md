@@ -315,3 +315,8 @@ capsule/mirror results and pass snapshot inventory through possible concurrent G
 redacted mirror coverage. Offline mirror/fetch share the server directory lock.
 No frozen crypto format, capsule v1 recipe, or product upload limit changes. Remote
 history is retained; full restore is capsule, fetch-blobs, consistency-check, browser proof.
+
+OIDC login admission is limited per client IP across route aliases. Pending transactions
+are bounded with oldest-expiry eviction; capacity does not globally refuse new logins,
+and eviction invalidates only that pending callback. CLI server mode rejects positional
+commands after explicit subcommand dispatch, including the removed plaintext `backup` name.

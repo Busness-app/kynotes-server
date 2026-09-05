@@ -179,18 +179,73 @@ func TestOIDCVerifiedLogin(t *testing.T) {
 
 func TestSSOTransactionExpiryAndCapacity(t *testing.T) {
 	pending := &ssoTransactions{pending: make(map[string]ssoTransaction)}
-	if !pending.add("expired", ssoTransaction{Expires: time.Now().Add(-time.Second)}) {
-		t.Fatal("add")
-	}
+	pending.add("expired", ssoTransaction{Expires: time.Now().Add(-time.Second)})
 	if _, ok := pending.take("expired"); ok {
 		t.Fatal("expired transaction")
 	}
+	oldest := time.Now().Add(time.Minute)
 	for i := 0; i < 1024; i++ {
-		if !pending.add(strings.Repeat("x", i+1), ssoTransaction{Expires: time.Now().Add(time.Minute)}) {
-			t.Fatal("capacity")
+		pending.add(strings.Repeat("x", i+1), ssoTransaction{Expires: oldest.Add(time.Duration(i) * time.Millisecond)})
+	}
+	pending.add("overflow", ssoTransaction{Expires: time.Now().Add(5 * time.Minute)})
+	if len(pending.pending) != 1024 {
+		t.Fatal("unbounded pending logins")
+	}
+	if _, ok := pending.take("x"); ok {
+		t.Fatal("oldest pending login retained")
+	}
+	if _, ok := pending.take("overflow"); !ok {
+		t.Fatal("new pending login missing")
+	}
+	if _, ok := pending.take("overflow"); ok {
+		t.Fatal("consumed transaction reused")
+	}
+}
+
+func TestSSOLoginSurvivesPendingFlood(t *testing.T) {
+	db, cfg := setupTestDB(t)
+	store := sso.NewStore(db)
+	var issuer *httptest.Server
+	issuer = httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(sso.DiscoveryDoc{Issuer: issuer.URL, AuthorizationEndpoint: issuer.URL + "/authorize", TokenEndpoint: issuer.URL + "/token", JWKSURI: issuer.URL + "/keys"})
+	}))
+	defer issuer.Close()
+	original := http.DefaultTransport
+	http.DefaultTransport = issuer.Client().Transport
+	defer func() { http.DefaultTransport = original }()
+	if err := store.Save(sso.SSOSettings{Enabled: true, IssuerURL: issuer.URL, ClientID: "fixture"}); err != nil {
+		t.Fatal(err)
+	}
+	mux := http.NewServeMux()
+	SSORoutes(mux, db, cfg, store)
+	aliases := []string{"/api/v1/auth/oidc/login", "/api/auth/oidc/login", "/auth/oidc/login"}
+	call := func(h http.Handler, path, ip string) *httptest.ResponseRecorder {
+		r := httptest.NewRequest("GET", path, nil)
+		r.RemoteAddr = ip + ":1234"
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		return w
+	}
+	for i := 0; i < 1025; i++ {
+		call(mux, aliases[i%len(aliases)], "192.0.2.1")
+	}
+	fresh := call(mux, aliases[0], "192.0.2.2")
+	if fresh.Code != 302 || len(fresh.Result().Cookies()) == 0 {
+		t.Fatalf("flood denied new client: %d", fresh.Code)
+	}
+	cfg.RateLimit.LoginPerMinute = 2
+	limited := rateLimitMiddleware(cfg, db, mux)
+	for i, path := range aliases {
+		got := call(limited, path, "192.0.2.3")
+		want := 302
+		if i == 2 {
+			want = 429
+		}
+		if got.Code != want {
+			t.Fatalf("alias rate limit: %s got %d want %d", path, got.Code, want)
 		}
 	}
-	if pending.add("overflow", ssoTransaction{Expires: time.Now().Add(time.Minute)}) {
-		t.Fatal("unbounded pending logins")
+	if got := call(limited, aliases[2], "192.0.2.4"); got.Code != 302 {
+		t.Fatal("one client limited another", got.Code)
 	}
 }

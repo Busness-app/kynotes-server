@@ -102,7 +102,15 @@ func main() {
 	path := flag.String("config", "/data/kynotes.yaml", "config path")
 	check := flag.Bool("check-config", false, "validate configuration")
 	version := flag.Bool("version", false, "print version")
+	if err := rejectUnknownCommand(os.Args[1:]); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(2)
+	}
 	flag.Parse()
+	if flag.NArg() != 0 {
+		fmt.Fprintln(os.Stderr, "unexpected positional arguments; server mode accepts flags only")
+		os.Exit(2)
+	}
 	if *version {
 		fmt.Println("kynotes-server dev")
 		return
@@ -387,4 +395,15 @@ func userCommand(args []string) error {
 	}
 	fmt.Fprintf(os.Stdout, "recovery code: %s\nStore it offline; it is shown once and unlocks the account without the password.\n", code)
 	return nil
+}
+
+// Called only after all supported subcommands have dispatched and returned.
+func rejectUnknownCommand(args []string) error {
+	if len(args) == 0 || strings.HasPrefix(args[0], "-") {
+		return nil
+	}
+	if args[0] == "backup" {
+		return fmt.Errorf("backup was removed; use copy-data-dir for a local directory copy or deposit for a sealed capsule")
+	}
+	return fmt.Errorf("unknown subcommand %q; server mode accepts flags only", args[0])
 }

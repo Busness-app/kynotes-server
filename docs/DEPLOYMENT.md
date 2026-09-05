@@ -152,3 +152,9 @@ Investigate missing content before relying on the capsule. Operations share a 16
 budget; very large backlogs may need repeated **Mirror now** runs before a backup. Successful
 acknowledgements survive retries. A future resumable worker/remote scrub is the upgrade path
 for workloads exceeding that budget or requiring continuous remote verification.
+
+OIDC login aliases use the configured login rate per client IP. The bounded pending
+login store evicts its oldest entry when full; an evicted login must start again.
+Removed `backup` commands fail with migration guidance rather than starting the server.
+Use `copy-data-dir` for the old local copy, `restore-data-dir` for its restore, and
+`restore --in CAPSULE --to EMPTY_DIR` for sealed recovery. Server mode accepts flags only.

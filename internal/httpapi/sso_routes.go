@@ -78,10 +78,7 @@ func SSORoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config, ssoStore *sso.
 		}
 
 		state, nonce := sso.GenerateState(), sso.GenerateState()
-		if !transactions.add(state, ssoTransaction{Verifier: verifier, Nonce: nonce, RedirectURI: redirectURI, Settings: settings, Expires: time.Now().Add(5 * time.Minute)}) {
-			WriteError(w, r, http.StatusTooManyRequests, "sso_busy", "too many pending logins")
-			return
-		}
+		transactions.add(state, ssoTransaction{Verifier: verifier, Nonce: nonce, RedirectURI: redirectURI, Settings: settings, Expires: time.Now().Add(5 * time.Minute)})
 		http.SetCookie(w, &http.Cookie{Name: ssoCookieName, Value: state, Path: "/", HttpOnly: true, Secure: !cfg.Server.DevInsecureCookies && isRequestSecure(r), SameSite: http.SameSiteLaxMode, MaxAge: 300})
 
 		authURL, err := url.Parse(disc.AuthorizationEndpoint)
@@ -365,7 +362,7 @@ type ssoTransactions struct {
 	pending map[string]ssoTransaction
 }
 
-func (s *ssoTransactions) add(state string, tx ssoTransaction) bool {
+func (s *ssoTransactions) add(state string, tx ssoTransaction) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for key, item := range s.pending {
@@ -373,12 +370,19 @@ func (s *ssoTransactions) add(state string, tx ssoTransaction) bool {
 			delete(s.pending, key)
 		}
 	}
-	// ponytail: at most 1024 concurrent logins per process. Upgrade path: shared expiring transaction store for multiple replicas.
+	// ponytail: bounded per-process login state; oldest eviction keeps admission open.
+	// Upgrade path: a shared expiring transaction store for multiple replicas.
 	if len(s.pending) >= 1024 {
-		return false
+		var oldest string
+		var expiry time.Time
+		for key, item := range s.pending {
+			if expiry.IsZero() || item.Expires.Before(expiry) {
+				oldest, expiry = key, item.Expires
+			}
+		}
+		delete(s.pending, oldest)
 	}
 	s.pending[state] = tx
-	return true
 }
 func (s *ssoTransactions) take(state string) (ssoTransaction, bool) {
 	s.mu.Lock()
