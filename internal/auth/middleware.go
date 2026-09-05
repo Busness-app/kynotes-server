@@ -52,6 +52,7 @@ func RequireAdmin(db *sql.DB, next http.Handler) http.Handler {
 		next.ServeHTTP(w, r)
 	}))
 }
+
 // StepUpWindow is how long a re-proof of the login secret grants access to
 // destructive admin routes.
 const StepUpWindow = 10 * time.Minute
