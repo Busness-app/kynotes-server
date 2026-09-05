@@ -321,7 +321,6 @@ func userCommand(args []string) error {
 
 	var authSecret, loginSalt string
 	iterations := 600000
-	var recoveryHash string
 
 	if password != "" {
 		loginSalt = auth.SyntheticLoginSalt(c.Secrets.ServerSaltKey, username)
@@ -331,14 +330,13 @@ func userCommand(args []string) error {
 		}
 	} else {
 		var in struct {
-			AuthSecret   string `json:"authSecret"`
-			LoginSalt    string `json:"loginSalt"`
-			Iterations   int    `json:"iterations"`
-			RecoveryHash string `json:"recoveryHash"`
+			AuthSecret string `json:"authSecret"`
+			LoginSalt  string `json:"loginSalt"`
+			Iterations int    `json:"iterations"`
 		}
 		b, e := io.ReadAll(os.Stdin)
 		if e != nil || len(b) == 0 {
-			return fmt.Errorf("either --password must be supplied or stdin must contain JSON {authSecret, loginSalt}")
+			return fmt.Errorf("either --password must be supplied or stdin must contain JSON {authSecret, loginSalt, iterations}")
 		}
 		if json.Unmarshal(b, &in) != nil || len(in.AuthSecret) != 64 || in.LoginSalt == "" {
 			return fmt.Errorf("stdin must contain derived authSecret and loginSalt")
@@ -348,10 +346,13 @@ func userCommand(args []string) error {
 		if in.Iterations > 0 {
 			iterations = in.Iterations
 		}
-		recoveryHash = in.RecoveryHash
 	}
 
 	hash, e := auth.HashAuthSecret(authSecret)
+	if e != nil {
+		return e
+	}
+	code, recoveryHash, e := auth.NewRecoveryCode()
 	if e != nil {
 		return e
 	}
@@ -365,5 +366,9 @@ func userCommand(args []string) error {
 	}
 	now := time.Now().UTC().Format(time.RFC3339)
 	_, e = s.DB().Exec(`INSERT INTO users(id,username,auth_secret_hash,login_salt,login_iterations,recovery_hash,role,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?,'active',?,?)`, id, strings.ToLower(username), hash, loginSalt, iterations, recoveryHash, role, now, now)
-	return e
+	if e != nil {
+		return e
+	}
+	fmt.Fprintf(os.Stdout, "recovery code: %s\nStore it offline; it is shown once and unlocks the account without the password.\n", code)
+	return nil
 }

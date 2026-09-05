@@ -264,10 +264,9 @@ func AuthRoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config) {
 	mux.HandleFunc("POST /api/v1/auth/recover", func(w http.ResponseWriter, r *http.Request) {
 		var in struct {
 			Username, RecoveryCode, NewAuthSecret, NewLoginSalt string
-			Iterations                                          int    `json:"iterations"`
-			NewRecoveryCode                                     string `json:"newRecoveryCode"`
+			Iterations                                          int `json:"iterations"`
 		}
-		if json.NewDecoder(r.Body).Decode(&in) != nil || in.Username == "" || in.NewRecoveryCode == "" || len(in.NewAuthSecret) != 64 {
+		if json.NewDecoder(r.Body).Decode(&in) != nil || in.Username == "" || len(in.NewAuthSecret) != 64 {
 			WriteError(w, r, 400, "invalid_request", "invalid request")
 			return
 		}
@@ -281,13 +280,9 @@ func AuthRoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config) {
 			return
 		}
 		var uid, stored, usedAt string
-		if e := db.QueryRow(`SELECT id,recovery_hash,recovery_used_at FROM users WHERE username=?`, strings.ToLower(in.Username)).Scan(&uid, &stored, &usedAt); e != nil || usedAt != "" || auth.VerifyAuthSecret(in.RecoveryCode, stored) != nil {
+		if e := db.QueryRow(`SELECT id,recovery_hash,recovery_used_at FROM users WHERE username=?`, strings.ToLower(in.Username)).Scan(&uid, &stored, &usedAt); e != nil || usedAt != "" || stored == "" || auth.VerifyRecoveryCode(in.RecoveryCode, stored) != nil {
 			loginLockout.Fail(key, time.Now().UTC())
 			WriteError(w, r, 401, "unauthenticated", "invalid recovery credentials")
-			return
-		}
-		if auth.VerifyAuthSecret(in.NewRecoveryCode, stored) == nil {
-			WriteError(w, r, 400, "invalid_request", "replacement recovery code must be new")
 			return
 		}
 		newHash, e := auth.HashAuthSecret(in.NewAuthSecret)
@@ -295,7 +290,9 @@ func AuthRoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config) {
 			WriteError(w, r, 500, "internal", "internal server error")
 			return
 		}
-		recoveryHash, e := auth.HashAuthSecret(in.NewRecoveryCode)
+		// The used code is replaced by a fresh one the server mints; it is
+		// returned once in the response and never stored in the clear.
+		nextCode, recoveryHash, e := auth.NewRecoveryCode()
 		if e != nil {
 			WriteError(w, r, 500, "internal", "internal server error")
 			return
@@ -324,7 +321,7 @@ func AuthRoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config) {
 			return
 		}
 		loginLockout.Success(key)
-		w.WriteHeader(http.StatusNoContent)
+		writeJSON(w, map[string]string{"recoveryCode": nextCode})
 	})
 }
 
