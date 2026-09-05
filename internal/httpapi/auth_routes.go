@@ -261,6 +261,43 @@ func AuthRoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config) {
 		}
 		w.WriteHeader(http.StatusNoContent)
 	})))
+	// Step-up re-proves the login secret for this session. The browser derives
+	// it from the typed password exactly as at login; the server never sees
+	// the password.
+	mux.Handle("POST /api/v1/auth/step-up", auth.RequireSession(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if auth.CheckCSRF(r) != nil {
+			WriteError(w, r, 403, "csrf_failed", "csrf validation failed")
+			return
+		}
+		var in struct {
+			AuthSecret string `json:"authSecret"`
+		}
+		if json.NewDecoder(r.Body).Decode(&in) != nil || len(in.AuthSecret) != 64 {
+			WriteError(w, r, 400, "invalid_request", "invalid request")
+			return
+		}
+		s, _ := auth.SessionFromContext(r)
+		key := s.UserID + "\x00" + clientIP(r)
+		if !loginLockout.Try(key, time.Now().UTC()) {
+			WriteError(w, r, 429, "rate_limited", "try again later")
+			return
+		}
+		var stored string
+		if db.QueryRow(`SELECT auth_secret_hash FROM users WHERE id=?`, s.UserID).Scan(&stored) != nil || auth.VerifyAuthSecret(in.AuthSecret, stored) != nil {
+			loginLockout.Fail(key, time.Now().UTC())
+			WriteError(w, r, 401, "unauthenticated", "invalid credentials")
+			return
+		}
+		loginLockout.Success(key)
+		now := time.Now().UTC().Format(time.RFC3339)
+		if _, err := db.Exec(`UPDATE sessions SET stepup_at=? WHERE id=?`, now, s.ID); err != nil {
+			WriteError(w, r, 500, "internal", "internal server error")
+			return
+		}
+		recordAudit(db, s.UserID, "auth.step_up", "", "", r.Header.Get("X-Request-Id"))
+		w.WriteHeader(http.StatusNoContent)
+	})))
+
 	mux.HandleFunc("POST /api/v1/auth/recover", func(w http.ResponseWriter, r *http.Request) {
 		var in struct {
 			Username, RecoveryCode, NewAuthSecret, NewLoginSalt string

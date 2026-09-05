@@ -1,0 +1,1 @@
+ALTER TABLE sessions ADD COLUMN stepup_at TEXT NOT NULL DEFAULT '';

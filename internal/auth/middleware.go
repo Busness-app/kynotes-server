@@ -52,6 +52,24 @@ func RequireAdmin(db *sql.DB, next http.Handler) http.Handler {
 		next.ServeHTTP(w, r)
 	}))
 }
+// StepUpWindow is how long a re-proof of the login secret grants access to
+// destructive admin routes.
+const StepUpWindow = 10 * time.Minute
+
+// RequireStepUp is RequireAdmin plus a recent re-proof of the login secret.
+// One-way doors (pairing, key pinning, exporting recovery material) sit behind
+// it, so a stolen admin cookie alone cannot open them.
+func RequireStepUp(db *sql.DB, next http.Handler) http.Handler {
+	return RequireAdmin(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		s, _ := SessionFromContext(r)
+		if s.StepUpAt.IsZero() || time.Since(s.StepUpAt) > StepUpWindow {
+			WriteAuthError(w, "step_up_required", "re-enter your password to continue")
+			return
+		}
+		next.ServeHTTP(w, r)
+	}))
+}
+
 func SessionFromContext(r *http.Request) (Session, bool) {
 	s, ok := r.Context().Value(sessionKey{}).(Session)
 	return s, ok
@@ -89,7 +107,7 @@ func unauthenticated(w http.ResponseWriter) {
 func WriteAuthError(w http.ResponseWriter, code, message string) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	status := http.StatusUnauthorized
-	if code == "forbidden" {
+	if code == "forbidden" || code == "step_up_required" {
 		status = http.StatusForbidden
 	}
 	w.WriteHeader(status)

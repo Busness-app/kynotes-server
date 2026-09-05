@@ -107,6 +107,8 @@ export const adminSettings = () => request<{ defaultTheme: string }>("/api/v1/ad
 export function updateAdminSettings(defaultTheme: string) { return request<void>("/api/v1/admin/settings", { method: "PATCH", body: JSON.stringify({ defaultTheme }) }); }
 export function updateAdminUser(user: AdminUser) { return request<void>(`/api/v1/admin/users/${encodeURIComponent(user.id)}`, { method: "PATCH", body: JSON.stringify(user) }); }
 export function changePassword(input: { currentAuthSecret: string; newAuthSecret: string; newLoginSalt: string; iterations: number }) { return request<void>("/api/v1/auth/password", { method: "POST", body: JSON.stringify(input) }); }
+/** Re-proves the login secret for the current session; destructive admin routes answer step_up_required until this succeeds. */
+export function stepUp(authSecret: string) { return request<void>("/api/v1/auth/step-up", { method: "POST", body: JSON.stringify({ authSecret }) }); }
 export const members = (containerID: string) => request<Array<{ userId: string; username: string; role: string }>>(`/api/v1/containers/${encodeURIComponent(containerID)}/members`);
 export const notifications = () => request<Array<{ id: string; objectId: string; authorUserId: string; createdAt: string; kind: string }>>("/api/v1/notifications");
 export const presence = (containerID: string) => request<Array<{ userId: string; state: string }>>(`/api/v1/presence?containerId=${encodeURIComponent(containerID)}`);
