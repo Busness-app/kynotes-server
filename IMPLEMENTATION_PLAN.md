@@ -7,6 +7,14 @@ Extension for Myslop #290: the implemented OIDC and directory-sync paths now use
 0014 records signed event replay atomically with account changes. This supersedes
 the original deferral of SSO for that existing subsystem; client crypto is unchanged.
 
+Recovery extension for Myslop #290: sealed capsule collection and restore live in
+`internal/backup`, using `ky-primitives/recoveryclient@v0.5.1`; see DESIGN.md and
+`docs/RESTORE.md`. The existing local plaintext commands are now `copy-data-dir`
+and `restore-data-dir`; sealed `restore --in --to` consumes custodian shares on stdin.
+The backup API is `/api/v1/admin/backup/{status,pin-key,pair-remote,unpair,schedule,
+deposit,drill,export-capsule}`; status is GET; all other operations, including export, are POST. Mutations
+use admin+CSRF+step-up. Backup errors retain the existing envelope.
+
 Source documents: [DESIGN.md](DESIGN.md), [SECURITY.md](SECURITY.md),
 [LOGGING.md](LOGGING.md), [CONTRIBUTING.md](CONTRIBUTING.md), [AGENTS.md](AGENTS.md).
 
@@ -1666,3 +1674,16 @@ None block Phases 1 and 2. Raise these before the phase that needs them.
 | Phase 6 | Confirm deterministic/convergent attachment encryption is actually wanted. The server design works either way; DESIGN.md permits it and SECURITY.md documents the equality leak. If clients use random nonces instead, dedup simply stops matching and nothing breaks. |
 | Phase 9 | KyPost push integration: the exact registration and delivery endpoints of the KyPost push relay. Until supplied, implement pull fallback only and leave `push.transport` unconfigured (routes answer `503 unavailable`). |
 | Phase 3 | Administrator account bootstrap: whether `kynotes-server user add` prompts interactively or takes a pre-derived auth secret. Default in this plan: it takes `--username` and reads a client-derived auth secret from stdin, so the server never sees a password. Proceed on that default unless told otherwise. |
+
+## Ciphertext mirror extension (Myslop #290)
+
+`internal/mirror` uses the nested `github.com/Busness-app/ky-primitives/offsite@v0.1.0`
+module for file, S3, pinned SFTP and SMB transports. It streams all note-version and
+attachment blobs, stores success acknowledgements in migration 0015, and fetches against
+the restored database inventory. Credentials live in protected config and encrypted
+capsules, never status/audits. Manual and scheduled capsule runs preserve independent
+capsule/mirror results and pass snapshot inventory through possible concurrent GC.
+`POST /api/v1/admin/backup/mirror` requires admin, step-up and CSRF; status includes
+redacted mirror coverage. Offline mirror/fetch share the server directory lock.
+No frozen crypto format, capsule v1 recipe, or product upload limit changes. Remote
+history is retained; full restore is capsule, fetch-blobs, consistency-check, browser proof.

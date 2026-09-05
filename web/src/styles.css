@@ -198,3 +198,14 @@ button, input, textarea, select { border-radius: 12px; corner-shape: squircle; }
 .admin-settings-layout .settings-content:has(#users:target) > #server, .admin-settings-layout .settings-content:has(#users:target) > #teams, .admin-settings-layout .settings-content:has(#users:target) > #audit,
 .admin-settings-layout .settings-content:has(#teams:target) > #server, .admin-settings-layout .settings-content:has(#teams:target) > #users, .admin-settings-layout .settings-content:has(#teams:target) > #audit,
 .admin-settings-layout .settings-content:has(#audit:target) > #server, .admin-settings-layout .settings-content:has(#audit:target) > #users, .admin-settings-layout .settings-content:has(#audit:target) > #teams { display: none; }
+
+.backup-facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 1rem; }
+.backup-facts > div { min-width: 0; overflow-wrap: anywhere; }
+.backup-actions { display: flex; gap: .5rem; flex-wrap: wrap; margin-block: 1rem; }
+.backup-key { font-family: monospace; overflow-wrap: anywhere; }
+#backups form { display: grid; gap: .75rem; margin-block: 1rem; }
+#backups label { display: grid; gap: .25rem; }
+#backups details { margin-block: 1rem; }
+
+.settings-content { min-width: 0; }
+#backups input, #backups textarea { min-width: 0; max-width: 100%; }

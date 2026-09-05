@@ -63,12 +63,30 @@ change hold scrypt verifiers, which are refused; recreate them.
 | `KYNOTES_DNS` | unset | Only with `docker-compose.lan-dns.yml`: the LAN resolver the container uses, for a KyRecovery that resolves only there. A value in `.env` alone does nothing; pass it on the command line and recreate the container. |
 
 ```bash
-KYNOTES_DNS=192.168.1.1 docker compose -f docker-compose.yml -f docker-compose.lan-dns.yml up -d
+KYNOTES_DNS=192.168.1.1 docker compose -f docker-compose.yml -f docker-compose.lan-dns.yml up -d --build
 docker inspect KyNotes-Server --format '{{.HostConfig.Dns}}'
 ```
 
-Sealed capsule backups and the attachment mirror land in a following release; the
-settings above are read today and the plaintext copy below remains the backup path.
+The admin Backups section supports pin-by-hand, pairing, local sealed copies,
+manual backup, export, drill, unpair and a persisted schedule (off or 15 minutes–366 days).
+The loop polls every minute and counts from the last attempt, including failures.
+A key without a destination is a precondition failure. A remote failure reports any
+local copy that did succeed; a local failure does not cancel the deposit.
+
+Use [RESTORE.md](RESTORE.md) for sealed recovery and the blob-coverage limitations.
+CLI `deposit`, `export-capsule --out FILE` and `backup-drill` take the data-directory
+lock and require a stopped server; the admin UI operates through the live handle.
+`copy-data-dir --out DIR` and `restore-data-dir --in DIR` are local plaintext copies.
+
+Every destructive backup action, including capsule export, uses POST and requires admin step-up plus CSRF;
+confirm the account password in the backup screen. HTTP mutations also require CSRF.
+Unpair removes URL/token rows only; the KyRecovery admin separately revokes the token.
+The suite key, receipts and local copies remain. Pinning a different key is refused.
+
+TLS protects the incoming key, token and receipt. Pin the suite key manually or compare
+fingerprints out of band. Preserve existing deployment secrets and token sealer labels.
+Shutdown waits for a bounded 16-minute backup operation; Compose allows 17 minutes
+before forcibly terminating the process.
 
 ## Plaintext copy
 
@@ -80,3 +98,57 @@ Migrations run at startup. Make a backup before upgrades. To roll back, stop
 the server, restore the backup directory, run both integrity checks, and start
 again. The server holds a data-directory lock while running, so backup and
 restore commands must be run against a stopped service.
+
+## Ciphertext blob mirror
+
+Capsules exclude both note-version and attachment ciphertext files. Configure one
+separate destination under `backup.blob_target` in YAML (see `kynotes.example.yaml`):
+
+| YAML field | Environment override | Meaning |
+|---|---|---|
+| `url` | `KYNOTES_BLOB_TARGET` | `file:///mnt/backup/kynotes`, `s3://bucket/prefix`, `sftp://user@host:22/dir`, or `smb://host/share/dir` |
+| `access_key` | `KYNOTES_BLOB_TARGET_ACCESS_KEY` | S3 access ID, SFTP username, or SMB `DOMAIN\user` |
+| `secret` | `KYNOTES_BLOB_TARGET_SECRET` | S3 secret, SFTP password/PEM private key, or SMB password |
+| `host_key` | `KYNOTES_BLOB_TARGET_HOST_KEY` | Verified SFTP SHA256 host fingerprint |
+| `s3_endpoint` | `KYNOTES_BLOB_TARGET_S3_ENDPOINT` | Optional HTTPS R2/MinIO endpoint |
+| `s3_region` | `KYNOTES_BLOB_TARGET_S3_REGION` | Optional region |
+
+Keep credentials in protected deployment configuration, never URL passwords. Compose
+passes these variables through; empty overrides preserve YAML values. Effective mirror
+credentials are included only inside the encrypted capsule configuration. Admin status
+omits credentials and usernames. Mount a `file://` destination into the container and
+make it writable by its user; a directory on the same disk is not off-box protection.
+
+With the server stopped, run `kynotes-server test-blob-target --config PATH`. For SFTP,
+an absent pin causes the probe to print the presented fingerprint and fail before
+authentication. Compare it with the host's key through a trusted independent channel,
+then configure it and repeat. Server startup and uploads require a pin. SFTP paths are
+relative to the account root. The probe writes a small object; S3 retains/overwrites
+that probe, while the other transports remove it.
+
+SMB supports versions 2/3 and requests signing, but the shared library can accept an
+unsigned guest session granted by the server. An impersonating server could observe
+the NTLMv2 exchange and discard uploads. Restrict SMB to a trusted network and verify
+replicas independently; a host-mounted share accessed with `file://` avoids that client
+limitation. An existing SMB object is accepted only after its size and digest verify.
+
+Admin **Mirror now** works independently of capsule pairing. **Back up now** and scheduled
+runs mirror the exact collected capsule inventory after attempting the capsule destinations.
+Capsule and mirror results remain separate: a deposit receipt does not prove blob coverage.
+CLI `mirror-blobs --config PATH` and `fetch-blobs --config PATH` require a stopped server
+and take the same directory lock. All transfers stream; the capsule member size cap does
+not limit blob transfers. Product upload limits stay unchanged.
+
+The single-target replica table records successful transfers only. Endpoint, bucket,
+prefix, SFTP host key and account-relative namespace changes cause uploads again;
+password rotations alone do not. Acknowledgements avoid rereading remote objects on
+every run, so later remote deletion is detected during fetch, not by the pending count.
+Remote objects are never garbage-collected by KyNotes. Preserve them for every retained
+capsule; removing live local objects does not establish that old capsules no longer need them.
+
+There is no atomic transaction spanning SQLite, local GC and remote storage. A blob that
+vanishes after snapshot collection is reported as a failure against that retained inventory.
+Investigate missing content before relying on the capsule. Operations share a 16-minute
+budget; very large backlogs may need repeated **Mirror now** runs before a backup. Successful
+acknowledgements survive retries. A future resumable worker/remote scrub is the upgrade path
+for workloads exceeding that budget or requiring continuous remote verification.

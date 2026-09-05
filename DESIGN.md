@@ -158,9 +158,13 @@ Use SQLite for metadata and an encrypted filesystem blob store for content.
 The instance owns one configurable data directory containing the database,
 encrypted blobs, key envelopes, sessions, audit records, and configuration.
 
-The directory can be backed up by stopping the server and copying it as one
-consistent unit. Restore is performed by replacing the data directory while
-the server is stopped, followed by a database integrity check.
+The directory can be copied locally with the server stopped. Sealed disaster-recovery
+capsules snapshot the live SQLite handle and include effective deployment secrets,
+recovery public key, configuration and blob inventory. `ky-primitives/recoveryclient`
+owns sealing, pairing, destinations, retention and scheduling. The product validates
+restored table counts, keys and inventory and revokes restored sessions. Blob payloads
+(note-version and attachment ciphertext) require separate mirroring and restoration.
+A database-only restore does not establish that content is recoverable.
 
 The blob store should be content-addressed by the encrypted blob digest. This
 supports deduplication, immutable versions, and garbage collection after
@@ -272,6 +276,10 @@ Security tests must verify that server logs, API responses, SQLite records,
 blobs, backups, and notifications contain no private plaintext or private
 keys.
 
+Capsule export is an admin/step-up/CSRF-protected POST, because snapshotting and sealing
+are expensive audited operations. Read-only backup status remains GET. Failed runs count
+toward the schedule interval; the pinned recovery client records attempts before preconditions.
+
 ## 12. Delivery phases
 
 ### Phase 1: secure core
@@ -294,3 +302,16 @@ presence, activity history, and collaboration notifications.
 
 Templates, web clipping, freehand drawing, richer media workflows, public
 publishing, and desktop clients.
+
+## Ciphertext mirror extension (Myslop #290)
+
+`internal/mirror` uses the nested `github.com/Busness-app/ky-primitives/offsite@v0.1.0`
+module for file, S3, pinned SFTP and SMB transports. It streams all note-version and
+attachment blobs, stores success acknowledgements in migration 0015, and fetches against
+the restored database inventory. Credentials live in protected config and encrypted
+capsules, never status/audits. Manual and scheduled capsule runs preserve independent
+capsule/mirror results and pass snapshot inventory through possible concurrent GC.
+`POST /api/v1/admin/backup/mirror` requires admin, step-up and CSRF; status includes
+redacted mirror coverage. Offline mirror/fetch share the server directory lock.
+No frozen crypto format, capsule v1 recipe, or product upload limit changes. Remote
+history is retained; full restore is capsule, fetch-blobs, consistency-check, browser proof.

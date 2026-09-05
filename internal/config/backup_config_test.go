@@ -60,3 +60,18 @@ func TestBackupEnvOverrides(t *testing.T) {
 		t.Fatal("KYNOTES_BACKUP_KEEP=0 accepted")
 	}
 }
+
+func TestBackupDefaultIntervalUpperBound(t *testing.T) {
+	c := Defaults()
+	c.DataDir = t.TempDir()
+	c.Server.Bind = "127.0.0.1:8080"
+	c.Server.DevInsecureCookies = true
+	c.Backup.DepositInterval = "8784h"
+	if err := Validate(c); err != nil {
+		t.Fatal(err)
+	}
+	c.Backup.DepositInterval = "8785h"
+	if err := Validate(c); err == nil {
+		t.Fatal("unbounded default backup interval")
+	}
+}
