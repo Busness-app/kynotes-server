@@ -36,6 +36,42 @@ timeouts from the configuration. Keep the default non-root container,
 read-only root filesystem, dropped capabilities, and `/data`/`/tmp` writable
 mounts.
 
+## Accounts
+
+`kynotes-server user add --username <name> --password <pass> [--admin]` creates an
+account and prints its recovery code once:
+
+```
+recovery code: xxxx-xxxx-xxxx
+```
+
+Store it offline. It is single-use, it unlocks the account without the password,
+and the server keeps only an Argon2id hash of it. `POST /api/v1/auth/recover`
+consumes it and returns a fresh one in the response.
+
+Passwords are stored as Argon2id (64 MiB, t=3, p=4). Databases created before this
+change hold scrypt verifiers, which are refused; recreate them.
+
+## Backup settings
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `KYNOTES_BACKUP_DIR` | empty | Directory for sealed `.kycap` copies. The container is read-only, so mount one (`./backups:/backups`) and point this at it. Empty disables local copies. |
+| `KYNOTES_BACKUP_KEEP` | `7` | Newest N local copies kept. Must be at least 1. |
+| `KYNOTES_BACKUP_DEPOSIT_INTERVAL` | `24h` | Default schedule. `0` disables; the floor is `15m`. The admin UI setting overrides this. |
+| `KYNOTES_BACKUP_ALLOW_PRIVATE_RECOVERY` | `false` | Admit a KyRecovery on a private or carrier-grade NAT address. HTTPS is still required; loopback, link-local and reserved ranges stay refused. |
+| `KYNOTES_DNS` | unset | Only with `docker-compose.lan-dns.yml`: the LAN resolver the container uses, for a KyRecovery that resolves only there. A value in `.env` alone does nothing; pass it on the command line and recreate the container. |
+
+```bash
+KYNOTES_DNS=192.168.1.1 docker compose -f docker-compose.yml -f docker-compose.lan-dns.yml up -d
+docker inspect KyNotes-Server --format '{{.HostConfig.Dns}}'
+```
+
+Sealed capsule backups and the attachment mirror land in a following release; the
+settings above are read today and the plaintext copy below remains the backup path.
+
+## Plaintext copy
+
 Back up with the server stopped: stop the container, copy `/data` as one unit,
 then start it. Restore only while stopped, run `integrity-check` and
 `consistency-check`, and start the server after both checks pass.
